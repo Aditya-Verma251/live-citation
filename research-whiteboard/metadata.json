@@ -1,0 +1,6 @@
+{
+  "name": "Research Whiteboard",
+  "description": "Whiteboard platform with file system dashboard tabs and interactive research paper graph nodes and relationship edges.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
