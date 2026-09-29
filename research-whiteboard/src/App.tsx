@@ -7,8 +7,6 @@ import {
   FileItem,
   TabItem,
   DashboardData,
-  ToolType,
-  FillStyle,
   ResearchPaperNode,
   ResearchPaperEdge,
   WhiteboardElement,
@@ -17,16 +15,13 @@ import {
   Point,
 } from './types';
 import { Sidebar, PRESET_RESEARCH_PAPERS } from './components/Sidebar';
-import { TabBar } from './components/TabBar';
 import { TopNav } from './components/TopNav';
-import { Toolbar } from './components/Toolbar';
-import { WhiteboardCanvas } from './components/WhiteboardCanvas';
+import {WhiteboardCanvas }from './components/WhiteboardCanvas';
 import { PaperInspector } from './components/PaperInspector';
 import { LinkedPapersSidebar } from './components/LinkedPapersSidebar';
 import { AddPaperModal } from './components/AddPaperModal';
-import { EdgeEditorModal } from './components/EdgeEditorModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
-import { autoLayoutResearchGraph } from './utils/graphLayout';
+import { TabBar } from './components/TabBar';
 import {
   getAllLinkedPapersForDashboard,
   LinkedPaperItem,
@@ -49,20 +44,10 @@ export default function App() {
   const [isLinkedPapersOpen, setIsLinkedPapersOpen] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isAddPaperModalOpen, setIsAddPaperModalOpen] = useState(false);
-  const [isEdgeEditorModalOpen, setIsEdgeEditorModalOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
 
   // Selection State
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-
-  // Whiteboard Tool & Styling State
-  const [activeTool, setActiveTool] = useState<ToolType>('select');
-  const [strokeColor, setStrokeColor] = useState<string>('#1e293b');
-  const [backgroundColor, setBackgroundColor] = useState<string>('transparent');
-  const [strokeWidth, setStrokeWidth] = useState<number>(2);
-  const [roughness, setRoughness] = useState<number>(1.2);
-  const [fillStyle, setFillStyle] = useState<FillStyle>('hachure');
 
   // History Undo/Redo Stacks per dashboard
   const [history, setHistory] = useState<Record<string, { past: DashboardData[]; future: DashboardData[] }>>({});
@@ -95,51 +80,7 @@ export default function App() {
     });
   }, [activeTabId, currentDashboard]);
 
-  // Undo Handler
-  const handleUndo = useCallback(() => {
-    const currentStack = history[activeTabId];
-    if (!currentStack || currentStack.past.length === 0) return;
-
-    const previous = currentStack.past[currentStack.past.length - 1];
-    const newPast = currentStack.past.slice(0, -1);
-
-    setHistory((prev) => ({
-      ...prev,
-      [activeTabId]: {
-        past: newPast,
-        future: [currentDashboard, ...(prev[activeTabId]?.future || [])],
-      },
-    }));
-
-    setDashboards((prev) => ({
-      ...prev,
-      [activeTabId]: previous,
-    }));
-  }, [activeTabId, currentDashboard, history]);
-
-  // Redo Handler
-  const handleRedo = useCallback(() => {
-    const currentStack = history[activeTabId];
-    if (!currentStack || currentStack.future.length === 0) return;
-
-    const next = currentStack.future[0];
-    const newFuture = currentStack.future.slice(1);
-
-    setHistory((prev) => ({
-      ...prev,
-      [activeTabId]: {
-        past: [...(prev[activeTabId]?.past || []), currentDashboard],
-        future: newFuture,
-      },
-    }));
-
-    setDashboards((prev) => ({
-      ...prev,
-      [activeTabId]: next,
-    }));
-  }, [activeTabId, currentDashboard, history]);
-
-  // Keyboard Shortcuts Listener
+  // Keyboard Shortcuts Listener (Simplified - Excalidraw handles native tools and undo/redo)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeTag = (e.target as HTMLElement).tagName;
@@ -147,64 +88,8 @@ export default function App() {
         return;
       }
 
-      // Undo / Redo
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          handleRedo();
-        } else {
-          handleUndo();
-        }
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        handleRedo();
-        return;
-      }
-
-      // Delete selected node or edge
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedNodeId) {
-          handleDeleteNode(selectedNodeId);
-        } else if (selectedEdgeId) {
-          handleDeleteEdge(selectedEdgeId);
-        }
-        return;
-      }
-
-      // Tool selection shortcuts
+      // App-level tool shortcuts
       switch (e.key.toLowerCase()) {
-        case 'v':
-          setActiveTool('select');
-          break;
-        case 'h':
-          setActiveTool('hand');
-          break;
-        case 'r':
-          setActiveTool('rectangle');
-          break;
-        case 'd':
-          setActiveTool('diamond');
-          break;
-        case 'o':
-          setActiveTool('ellipse');
-          break;
-        case 'a':
-          setActiveTool('arrow');
-          break;
-        case 'l':
-          setActiveTool('line');
-          break;
-        case 'p':
-          setActiveTool('draw');
-          break;
-        case 't':
-          setActiveTool('text');
-          break;
-        case 'e':
-          setActiveTool('eraser');
-          break;
         case 'n':
           setIsAddPaperModalOpen(true);
           break;
@@ -216,9 +101,9 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, selectedEdgeId, handleUndo, handleRedo]);
+  }, []);
 
-  // Open file from Sidebar: if already in tabs, switch to that tab; otherwise open as a new tab!
+  // Open file from Sidebar
   const handleOpenFile = (file: FileItem) => {
     if (!file.dashboardId) return;
 
@@ -240,7 +125,6 @@ export default function App() {
   const handleCloseTab = (tabId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (tabs.length === 1) {
-      // If closing the last tab, create an empty scratchpad
       handleCreateFile(null, 'Scratchpad.excali');
       return;
     }
@@ -284,7 +168,6 @@ export default function App() {
     setFiles((prev) => [...prev, newFile]);
     setDashboards((prev) => ({ ...prev, [newDashId]: newDashboard }));
 
-    // Open as tab immediately
     setTabs((prev) => [...prev, { id: newDashId, fileId: newFileId, title: fileName }]);
     setActiveTabId(newDashId);
   };
@@ -403,45 +286,11 @@ export default function App() {
     }));
   };
 
-  // Toggle Grid
-  const handleToggleGrid = () => {
-    const nextGrid: 'dots' | 'grid' | 'none' =
-      currentDashboard.gridType === 'dots'
-        ? 'grid'
-        : currentDashboard.gridType === 'grid'
-        ? 'none'
-        : 'dots';
-
-    setDashboards((prev) => ({
-      ...prev,
-      [activeTabId]: {
-        ...currentDashboard,
-        gridType: nextGrid,
-      },
-    }));
-  };
-
-  // Zoom controls
-  const handleZoomIn = () => {
-    const newZoom = Math.min(currentDashboard.viewTransform.zoom * 1.15, 3.0);
-    handleChangeViewTransform({ ...currentDashboard.viewTransform, zoom: newZoom });
-  };
-
-  const handleZoomOut = () => {
-    const newZoom = Math.max(currentDashboard.viewTransform.zoom / 1.15, 0.25);
-    handleChangeViewTransform({ ...currentDashboard.viewTransform, zoom: newZoom });
-  };
-
-  const handleResetZoom = () => {
-    handleChangeViewTransform({ ...currentDashboard.viewTransform, zoom: 1.0 });
-  };
-
   // Add Paper Node
   const handleAddPaperNode = (
     paperData: Omit<ResearchPaperNode, 'id' | 'x' | 'y'>
   ) => {
     recordHistory();
-    // Center in current view
     const view = currentDashboard.viewTransform;
     const centerX = (-view.x + window.innerWidth / 2) / view.zoom - 160;
     const centerY = (-view.y + window.innerHeight / 2) / view.zoom - 100;
@@ -571,28 +420,13 @@ export default function App() {
     recordHistory();
     const updatedEdges = currentDashboard.paperEdges.filter((e) => e.id !== edgeId);
     handleUpdateEdges(updatedEdges);
-    if (selectedEdgeId === edgeId) {
-      setSelectedEdgeId(null);
-      setIsEdgeEditorModalOpen(false);
-    }
-  };
-
-  // Auto layout research graph chronologically
-  const handleAutoLayout = () => {
-    recordHistory();
-    const laidOutNodes = autoLayoutResearchGraph(
-      currentDashboard.paperNodes,
-      currentDashboard.paperEdges
-    );
-    handleUpdateNodes(laidOutNodes);
   };
 
   // Export current canvas as PNG
   const handleExportPNG = () => {
-    const canvas = document.querySelector('#whiteboard-viewport-container canvas') as HTMLCanvasElement;
+    const canvas = document.querySelector('.excalidraw canvas') as HTMLCanvasElement;
     if (!canvas) return;
 
-    // Create a download link
     const link = document.createElement('a');
     link.download = `${currentDashboard.title.replace(/\.[^/.]+$/, '')}.png`;
     link.href = canvas.toDataURL('image/png');
@@ -671,7 +505,6 @@ export default function App() {
   // Drop linked paper onto canvas as a new node
   const handleDropLinkedPaper = (paper: any, worldPos: Point) => {
     recordHistory();
-    // Check if paper is already in this dashboard
     const existing = currentDashboard.paperNodes.find(
       (n) => n.id === paper.id || n.title.toLowerCase() === paper.title.toLowerCase()
     );
@@ -701,7 +534,6 @@ export default function App() {
 
     const newEdges = [...currentDashboard.paperEdges];
 
-    // If this paper is linked to an existing node on the canvas, auto-create edge
     if (paper.linkedToPaperId) {
       const parentNode = currentDashboard.paperNodes.find((n) => n.id === paper.linkedToPaperId);
       if (parentNode) {
@@ -756,11 +588,6 @@ export default function App() {
   };
 
   const selectedNode = currentDashboard.paperNodes.find((n) => n.id === selectedNodeId) || null;
-  const selectedEdge = currentDashboard.paperEdges.find((e) => e.id === selectedEdgeId) || null;
-  const edgeSourceNode = selectedEdge ? currentDashboard.paperNodes.find((n) => n.id === selectedEdge.sourceNodeId) : undefined;
-  const edgeTargetNode = selectedEdge ? currentDashboard.paperNodes.find((n) => n.id === selectedEdge.targetNodeId) : undefined;
-
-  const currentHistoryStack = history[activeTabId] || { past: [], future: [] };
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-white text-slate-900 font-sans antialiased">
@@ -803,7 +630,6 @@ export default function App() {
           onSelectTab={(tabId) => {
             setActiveTabId(tabId);
             setSelectedNodeId(null);
-            setSelectedEdgeId(null);
           }}
           onCloseTab={handleCloseTab}
           onNewTab={() => handleCreateFile(null)}
@@ -811,76 +637,13 @@ export default function App() {
 
         {/* Canvas & Linked Papers Flex Area */}
         <div className="flex-1 flex overflow-hidden relative">
-          {/* Canvas Area with Floating Excalidraw Toolbar */}
-          <main className="flex-1 relative overflow-hidden bg-slate-50">
-            {/* Excalidraw Toolbar */}
-            <Toolbar
-              activeTool={activeTool}
-              onSelectTool={setActiveTool}
-              strokeColor={strokeColor}
-              onChangeStrokeColor={setStrokeColor}
-              backgroundColor={backgroundColor}
-              onChangeBackgroundColor={setBackgroundColor}
-              strokeWidth={strokeWidth}
-              onChangeStrokeWidth={setStrokeWidth}
-              roughness={roughness}
-              onChangeRoughness={setRoughness}
-              fillStyle={fillStyle}
-              onChangeFillStyle={setFillStyle}
-              zoom={currentDashboard.viewTransform.zoom}
-              onZoomIn={handleZoomIn}
-              onZoomOut={handleZoomOut}
-              onResetZoom={handleResetZoom}
-              canUndo={currentHistoryStack.past.length > 0}
-              canRedo={currentHistoryStack.future.length > 0}
-              onUndo={handleUndo}
-              onRedo={handleRedo}
-              gridType={currentDashboard.gridType}
-              onToggleGrid={handleToggleGrid}
-              onAutoLayout={handleAutoLayout}
-              onOpenAddPaperModal={() => setIsAddPaperModalOpen(true)}
-              paperCount={currentDashboard.paperNodes.length}
-              edgeCount={currentDashboard.paperEdges.length}
-              isLinkedPapersOpen={isLinkedPapersOpen}
-              onToggleLinkedPapers={() => setIsLinkedPapersOpen(!isLinkedPapersOpen)}
-            />
-
-            {/* Core Whiteboard Canvas */}
-            <WhiteboardCanvas
-              elements={currentDashboard.elements}
-              paperNodes={currentDashboard.paperNodes}
-              paperEdges={currentDashboard.paperEdges}
-              activeTool={activeTool}
-              strokeColor={strokeColor}
-              backgroundColor={backgroundColor}
-              strokeWidth={strokeWidth}
-              roughness={roughness}
-              fillStyle={fillStyle}
-              viewTransform={currentDashboard.viewTransform}
-              gridType={currentDashboard.gridType}
-              selectedNodeId={selectedNodeId}
-              selectedEdgeId={selectedEdgeId}
-              onUpdateElements={handleUpdateElements}
-              onUpdateNodes={handleUpdateNodes}
-              onUpdateEdges={handleUpdateEdges}
-              onSelectNode={(nodeId) => {
-                setSelectedNodeId(nodeId);
-                if (nodeId) setIsInspectorOpen(true);
-              }}
-              onSelectEdge={(edgeId) => {
-                setSelectedEdgeId(edgeId);
-                if (edgeId) setIsEdgeEditorModalOpen(true);
-              }}
-              onOpenInspector={(nodeId) => {
-                setSelectedNodeId(nodeId);
-                setIsInspectorOpen(true);
-              }}
-              onChangeViewTransform={handleChangeViewTransform}
-              onRecordHistory={recordHistory}
-              onDropPaperNode={handleDropLinkedPaper}
-            />
-          </main>
-
+          {/* Canvas Area */}
+            <main className="flex-1 relative overflow-hidden bg-slate-50" id="whiteboard-viewport-container">
+  <WhiteboardCanvas
+    paperNodes={currentDashboard.paperNodes}
+    paperEdges={currentDashboard.paperEdges}
+  />
+</main>
           {/* Dedicated Linked Papers Sidebar for current dashboard */}
           <LinkedPapersSidebar
             isOpen={isLinkedPapersOpen}
@@ -931,27 +694,7 @@ export default function App() {
         onAddPaper={handleAddPaperNode}
       />
 
-      {/* 5. Edge Editor Modal */}
-      {isEdgeEditorModalOpen && selectedEdge && (
-        <EdgeEditorModal
-          edge={selectedEdge}
-          sourceNode={edgeSourceNode}
-          targetNode={edgeTargetNode}
-          onUpdateEdge={(updated) => {
-            recordHistory();
-            handleUpdateEdges(
-              currentDashboard.paperEdges.map((e) => (e.id === updated.id ? updated : e))
-            );
-          }}
-          onDeleteEdge={handleDeleteEdge}
-          onClose={() => {
-            setIsEdgeEditorModalOpen(false);
-            setSelectedEdgeId(null);
-          }}
-        />
-      )}
-
-      {/* 6. Shortcuts & Interaction Guide Modal */}
+      {/* 5. Shortcuts & Interaction Guide Modal */}
       <ShortcutsModal
         isOpen={isShortcutsOpen}
         onClose={() => setIsShortcutsOpen(false)}
