@@ -88,7 +88,12 @@ export interface ViewTransform {
 export interface DashboardData {
   id: string;
   title: string;
+  /** Legacy seed shapes (banners, group backdrops). Converted to Excalidraw once. */
   elements: WhiteboardElement[];
+  /** Everything the user draws freely in Excalidraw (non-paper elements), saved as-is. */
+  sceneElements?: any[];
+  /** Bump to force the canvas to remount (used after importing JSON). */
+  revision?: number;
   paperNodes: ResearchPaperNode[];
   paperEdges: ResearchPaperEdge[];
   viewTransform: ViewTransform;

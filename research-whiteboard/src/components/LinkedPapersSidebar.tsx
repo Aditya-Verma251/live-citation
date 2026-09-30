@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Network,
   X,
@@ -46,6 +46,11 @@ export const LinkedPapersSidebar: React.FC<LinkedPapersSidebarProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'not-added' | 'added'>('all');
   const [customSelectedParentId, setCustomSelectedParentId] = useState<string | 'all'>('auto');
+
+  // When a card is selected on the canvas, go back to following the canvas selection
+  useEffect(() => {
+    setCustomSelectedParentId('auto');
+  }, [selectedNodeId]);
 
   // Determine which parent paper to focus on:
   // If user explicitly picked a parent in the dropdown, use that;
@@ -326,7 +331,7 @@ export const LinkedPapersSidebar: React.FC<LinkedPapersSidebarProps> = ({
               </div>
 
               {/* Actions Footer */}
-              <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+              <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between gap-3">
                 {isOnCanvas ? (
                   <button
                     onClick={() => {
@@ -338,7 +343,7 @@ export const LinkedPapersSidebar: React.FC<LinkedPapersSidebarProps> = ({
                     <span>Locate on Canvas</span>
                   </button>
                 ) : (
-                  <div className="flex items-center space-x-1.5 w-full justify-between">
+                  <div className="flex items-center space-x-1.5 flex-1 min-w-0 justify-between">
                     <span className="text-[10px] text-slate-400 flex items-center space-x-0.5">
                       <GripVertical className="w-3 h-3" />
                       <span>Drag to drop</span>
@@ -359,7 +364,7 @@ export const LinkedPapersSidebar: React.FC<LinkedPapersSidebarProps> = ({
                     target="_blank"
                     rel="noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    className="text-[9px] font-mono text-slate-400 hover:text-indigo-600 flex items-center space-x-0.5 ml-auto"
+                    className="text-[9px] font-mono text-slate-400 hover:text-indigo-600 flex items-center space-x-0.5 flex-shrink-0"
                     title="View arXiv"
                   >
                     <span>arXiv</span>

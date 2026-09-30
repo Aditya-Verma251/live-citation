@@ -7,9 +7,16 @@
   }
   /* Hide scrollbar for IE, Edge and Firefox */
   .no-scrollbar {
-    -ms-overflow-style: none;  /* IE and Edge */
-    scrollbar-width: none;  /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
   }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
 }
 
 body {
@@ -17,3 +24,11 @@ body {
   user-select: none;
   overflow: hidden;
 }
+
+/*
+  NOTE: Excalidraw's own stylesheet is imported in WhiteboardCanvas.tsx
+  ("@excalidraw/excalidraw/index.css"). Without it the toolbar renders as
+  raw checkboxes and the lock icon is huge. The old ".excalidraw svg" reset
+  that used to live here has been removed because it fought with
+  Excalidraw's icon sizing.
+*/
