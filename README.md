@@ -16,11 +16,21 @@ Researchers, graduate students, and engineers are overwhelmed by the sheer volum
 
 ## Team Members
 
-- Harsh Yadav (2024AIB1006): Leader
-- Aditya Kumar Verma (2024AIB1002): Slave
+- Harsh Yadav (2024AIB1006)
+- Aditya Kumar Verma (2024AIB1002)
 ## Technologies Used
 
 - **Frontend:** React.js with Excalidraw for interactive graph visualization for the dynamic whiteboard canvas.
 (everything below is planned for the future)
 - **Backend:** Python (FastAPI) to handle real-time collaboration, API endpoints, and data processing.
 - **Natural Language Processing (NLP) / Extraction:** Python-based NLP pipelines (using LLMs) to mine preprints and papers for methodologies and citations.
+
+## Improvements from LAB:7
+- Problem: Adding physical connections between nodes is confusing and non-standard.
+- Standardize Edge Creation: Implement clear anchor points on nodes that appear when hovered over, allowing users to intuitively drag and drop edges to connect nodes.
+
+- Problem: Too many windows popping up and overlapping, sidebars take up excessive space.
+- Consolidate UI Panels: Merge or add collapse toggles to the "Linked Papers" and "Research Node Inspector" sidebars to maximize the visible canvas area and reduce floating window clutter.
+
+- Problem:Graph, edge, and node readability is poor.
+- Nodes readability improved providing pop up card not disturbing the whole graph. Edges are clear and visible.
