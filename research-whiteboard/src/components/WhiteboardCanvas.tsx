@@ -23,6 +23,10 @@ import {
   findMovedNodes,
   relayoutEdges,
   parseOwnedId,
+  enforceEdgeState,
+  stripEdgeSelection,
+  isEdgeElementId,
+  POINT_DIAMETER,
 } from "../utils/excalidrawAdapter";
 import {
   ResearchPaperNode,
@@ -32,6 +36,7 @@ import {
   Point,
 } from "../types";
 import { HoverCard } from "./HoverCard";
+import { LINKED_PAPER_MIME } from "../utils/dnd";
 
 /** Two clicks on the same node within this window count as a double-click. */
 const DOUBLE_CLICK_MS = 300;
@@ -49,7 +54,8 @@ export interface WhiteboardHandle {
  * The graph (React state) is rendered onto the canvas:
  *   graph --buildPaperElements--> unlocked Excalidraw elements --updateScene--> canvas
  * The ONLY thing that flows back is node positions (dragging), via `onNodesMoved`. Nodes and edges
- * can be added / deleted only from GraphManagerSidebar; deleting them on the canvas is reverted.
+ * can be added / deleted only from the graph sidebar; deleting them on the canvas is reverted.
+ * Edges are LOCKED: the user can only move nodes, and the arrows follow them.
  */
 interface WhiteboardCanvasProps {
   paperNodes: ResearchPaperNode[];
@@ -67,6 +73,12 @@ interface WhiteboardCanvasProps {
   /** Free-hand drawings (NOT part of the graph) changed - persisted per board. */
   onSceneChange: (elements: any[]) => void;
   onViewChange: (view: ViewTransform) => void;
+
+  /** Edge flow: while true, a click on a node is reported via `onPickNode` instead of selecting it. */
+  isPickingNode?: boolean;
+  onPickNode?: (nodeId: string) => void;
+  /** A linked paper was dropped from the sidebar. `point` is the top-left of the new node, in scene coordinates. */
+  onDropLinkedPaper?: (paper: any, point: Point) => void;
 }
 
 /** Everything that affects how nodes / arrows look. If it changes, the graph elements are rebuilt. */
@@ -123,6 +135,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
   const renderedSigRef = useRef("");
   const freeSigRef = useRef("");
   const driftFixesRef = useRef(0);
+  const edgeFixesRef = useRef(0);
   const viewTimer = useRef<number | undefined>(undefined);
   // Node positions (nodeId -> x,y) the edges were last laid out for. Lets us detect "a node moved".
   const layoutPosRef = useRef<Map<string, Point>>(new Map());
@@ -185,6 +198,11 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
     setCard(null);
   }, []);
 
+  // Starting the edge flow closes any open hover / pinned card.
+  useEffect(() => {
+    if (props.isPickingNode) clearCard();
+  }, [props.isPickingNode, clearCard]);
+
   /* ---- clicks on the graph elements ---- */
   // We hit-test the point/title ELEMENTS ourselves and map their ids back to graph nodes. (Excalidraw's own hit result is
   // not populated yet when onPointerDown fires, hence the fallback order below.)
@@ -199,6 +217,13 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
         resolveNodeId(pointerDownState.hit?.element?.id, p.paperNodes) ??
         hitTestPaperNode(a.getSceneElements(), p.paperNodes, pointerDownState.origin as Point, s.zoom.value);
       lastNodeHitRef.current = nodeId;
+
+      // Edge flow: the click belongs to the flow ("this is my source / destination"), not to selection.
+      if (p.isPickingNode) {
+        clearCard();
+        if (nodeId) p.onPickNode?.(nodeId);
+        return;
+      }
 
       // Double click: same node twice within 300ms -> open the inspector
       const now = Date.now();
@@ -264,6 +289,23 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
       // Runs BEFORE the mid-gesture early return below, so arrows follow the node frame by frame.
       trackEdges(elements);
 
+      // Edges are locked, but box-select / Ctrl+A / the "unlock" bubble could still reach them: keep them
+      // out of the selection and dismiss the bubble.
+      const a = apiRef.current;
+      if (a) {
+        const cleaned = stripEdgeSelection(appState.selectedElementIds, elements);
+        const bubble = isEdgeElementId(appState.activeLockedId);
+        if (cleaned || bubble) {
+          a.updateScene({
+            appState: {
+              ...(cleaned ? { selectedElementIds: cleaned } : {}),
+              ...(bubble ? { activeLockedId: null } : {}),
+            },
+            captureUpdate: "NEVER",
+          } as any);
+        }
+      }
+
       // Don't commit anything while the user is mid-gesture.
       if (
         appState.selectedElementsAreBeingDragged ||
@@ -274,7 +316,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
         return;
       }
 
-      // 1) Deletion guard: nodes/edges may only be deleted from GraphManagerSidebar. If a graph element
+      // 1) Deletion guard: nodes/edges may only be deleted from the graph sidebar. If a graph element
       //    vanished from the scene (Delete key, eraser, undo), restore everything from React state.
       //    Capped so a persistent mismatch can't loop forever.
       if (graphHasDrifted(elements, p.paperNodes, p.paperEdges)) {
@@ -285,6 +327,21 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
         return; // don't sync positions / persist from a scene that is about to be replaced
       }
       driftFixesRef.current = 0;
+
+      // 1b) Edge lock guard: re-lock any edge that got unlocked and snap any arrow that is not exactly where its
+      //     nodes put it. Idempotent (returns null once everything matches); capped like the drift guard.
+      const edgeFix = enforceEdgeState(elements, p.paperEdges);
+      if (edgeFix) {
+        if (edgeFixesRef.current < 5) {
+          edgeFixesRef.current += 1;
+          apiRef.current?.updateScene({
+            elements: elements.map((el) => edgeFix.get(el.id) ?? el),
+            captureUpdate: "NEVER",
+          } as any);
+        }
+      } else {
+        edgeFixesRef.current = 0;
+      }
 
       // 2) Drag sync: the gesture is over (early return above), so any ellipse whose x/y differs from
       //    its PaperNode is a finished move. Comparing against state means this only fires once per
@@ -317,7 +374,7 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
   const handlePointerUpdate = useCallback(
     (payload: any) => {
       const a = apiRef.current;
-      if (!a || !payload?.pointer || pinnedRef.current) return;
+      if (!a || !payload?.pointer || pinnedRef.current || live.current.isPickingNode) return;
       if (payload.button === "down") return clearHover();
 
       const nodeId = hitTestPaperNode(
@@ -336,6 +393,41 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
     },
     [clearHover]
   );
+
+  /* ---- drag & drop: linked papers dragged from the sidebar ---- */
+  // Capture phase + stopPropagation so Excalidraw's own file-drop handler never sees our payload.
+  const hasLinkedPaper = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes(LINKED_PAPER_MIME);
+
+  const onDragOverCapture = (e: React.DragEvent) => {
+    if (!hasLinkedPaper(e)) return;
+    e.preventDefault(); // required, otherwise the browser refuses the drop
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const onDropCapture = (e: React.DragEvent) => {
+    if (!hasLinkedPaper(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const a = apiRef.current;
+    const box = containerRef.current?.getBoundingClientRect();
+    if (!a || !box) return;
+
+    let paper: any;
+    try {
+      paper = JSON.parse(e.dataTransfer.getData(LINKED_PAPER_MIME));
+    } catch {
+      return;
+    }
+    const s = a.getAppState();
+    // screen -> scene, then centre the point under the cursor (node x/y is the ellipse's top-left)
+    const sceneX = (e.clientX - box.left) / s.zoom.value - s.scrollX;
+    const sceneY = (e.clientY - box.top) / s.zoom.value - s.scrollY;
+    live.current.onDropLinkedPaper?.(paper, {
+      x: sceneX - POINT_DIAMETER / 2,
+      y: sceneY - POINT_DIAMETER / 2,
+    });
+  };
 
   // The inspector opens from onPointerDown (300ms rule). Without this, Excalidraw would also handle the
   // native double-click itself ("edit text in shape" / "enter group").
@@ -400,9 +492,15 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
     <div
       ref={containerRef}
       style={{ position: "absolute", inset: 0 }}
+      className={props.isPickingNode ? "edge-picking" : undefined}
       onDoubleClickCapture={onDoubleClickCapture}
+      onDragOverCapture={onDragOverCapture}
+      onDropCapture={onDropCapture}
       onPointerLeave={clearHover}
     >
+      {/* crosshair while the user is choosing a source / destination node */}
+      {props.isPickingNode && <style>{`.edge-picking .excalidraw canvas { cursor: crosshair !important; }`}</style>}
+
       <Excalidraw
         excalidrawAPI={(a) => {
           apiRef.current = a;

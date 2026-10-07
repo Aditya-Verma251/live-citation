@@ -10,9 +10,11 @@ import type {
 
 /**
  * ADAPTER: graph (React state) -> Excalidraw elements.
- * Generated elements are UNLOCKED so users can drag nodes. The only thing the canvas writes back is
- * node POSITIONS (WhiteboardCanvas.onChange). Structural edits (add / delete nodes and edges) happen
- * only in GraphManagerSidebar -> graphOps -> React state -> buildPaperElements -> updateScene.
+ * Node elements (point + title) are UNLOCKED so users can drag them. Edge elements (arrow + its label)
+ * are LOCKED: they can't be selected, dragged, resized or deleted by hand and only ever move because a
+ * node moved (see relayoutEdges / enforceEdgeState). The only thing the canvas writes back is node
+ * POSITIONS (WhiteboardCanvas.onChange). Structural edits (add / delete nodes and edges) happen only in
+ * the graph sidebar / edge flow -> graphOps -> React state -> buildPaperElements -> updateScene.
  *
  * ID CONVENTION (this is what keeps the canvas and the app state in sync)
  *   paper node parts : `${nodeId}::card` (the ellipse / point) and `${nodeId}::title` (the text)
@@ -41,6 +43,14 @@ export const isPaperOwned = (el: any): boolean => {
   return false;
 };
 
+/** True for an edge's arrow (`<edgeId>::edge`) and for the text label bound to it. */
+export const isEdgeOwned = (el: any): boolean => {
+  if (typeof el?.id === "string" && parseOwnedId(el.id)?.part === "edge") return true;
+  if (el?.type === "text" && typeof el.containerId === "string") {
+    return parseOwnedId(el.containerId)?.part === "edge";
+  }
+  return false;
+};
 
 /* --------------------------- click -> node lookup --------------------------- */
 
@@ -261,6 +271,7 @@ export const buildPaperElements = (
       strokeStyle: look.strokeStyle,
       roundness: look.roundness,
       roughness: 0,
+      locked: true, // edges are not user-editable; they follow their nodes
       endArrowhead: "arrow",
       ...(e.label
         ? { label: { text: e.label, fontSize: 14, strokeColor: look.strokeColor } }
@@ -271,6 +282,10 @@ export const buildPaperElements = (
   // regenerateIds:false is REQUIRED - the ids above are how we map clicks back to papers.
   const elements: any[] = convertToExcalidrawElements(skeleton, { regenerateIds: false });
   ensureBindings(elements, edges);
+  // The converter does not let us flag the generated label text, so lock every edge element explicitly.
+  elements.forEach((el) => {
+    if (isEdgeOwned(el)) el.locked = true;
+  });
 
   return elements;
 };
@@ -403,11 +418,68 @@ export const relayoutEdges = (
   return out.size > 0 ? out : null;
 };
 
+/* ----------------------------- edge lock guard ----------------------------- */
+
+/**
+ * Safety net that keeps edges untouchable, even if the user finds a way around Excalidraw's lock
+ * (context menu "Unlock all", the unlock bubble on a locked element, a stale scene after undo...).
+ * Returns replacement elements keyed by id, or null when every edge is already locked AND sitting
+ * exactly where its two nodes put it. Idempotent, so it is safe to call on every onChange.
+ */
+export const enforceEdgeState = (
+  elements: readonly any[],
+  edges: ResearchPaperEdge[]
+): Map<string, any> | null => {
+  const out = new Map<string, any>();
+
+  // 1) anything edge-owned must be locked
+  for (const el of elements) {
+    if (el.isDeleted || !isEdgeOwned(el) || el.locked === true) continue;
+    out.set(el.id, { ...el, locked: true, ...nextVersion(el) });
+  }
+
+  // 2) every arrow must match its nodes' CURRENT positions (re-uses the live drag routing)
+  const base = out.size > 0 ? elements.map((el) => out.get(el.id) ?? el) : elements;
+  const allNodeIds = new Set<string>();
+  for (const e of edges) {
+    allNodeIds.add(e.sourceNodeId);
+    allNodeIds.add(e.targetNodeId);
+  }
+  const geometry = relayoutEdges(base, allNodeIds, edges);
+  if (geometry) geometry.forEach((el, id) => out.set(id, el));
+
+  return out.size > 0 ? out : null;
+};
+
+/**
+ * Returns `selectedElementIds` without any edge element (box-select and Ctrl+A can otherwise sweep locked
+ * elements into a selection), or null when nothing needs removing.
+ */
+export const stripEdgeSelection = (
+  selectedElementIds: Record<string, boolean>,
+  elements: readonly any[]
+): Record<string, boolean> | null => {
+  const edgeIds = new Set<string>();
+  for (const el of elements) if (isEdgeOwned(el)) edgeIds.add(el.id);
+
+  let changed = false;
+  const next: Record<string, boolean> = {};
+  for (const [id, on] of Object.entries(selectedElementIds ?? {})) {
+    if (edgeIds.has(id)) changed = true;
+    else next[id] = on;
+  }
+  return changed ? next : null;
+};
+
+/** True when `id` is the id of an edge element (used to dismiss Excalidraw's "unlock" bubble for edges). */
+export const isEdgeElementId = (id: unknown): boolean =>
+  typeof id === "string" && parseOwnedId(id)?.part === "edge";
+
 /* ------------------------- deletion guard / drag sync ------------------------- */
 
 /**
  * True when a graph element was deleted from the canvas (Delete key, eraser, undo...) or a stale one
- * is left over. Nodes and edges may only be removed through GraphManagerSidebar, so the canvas then
+ * is left over. Nodes and edges may only be removed through the graph sidebar, so the canvas then
  * re-pushes the graph. Positions are NOT checked here: dragging is allowed and synced separately
  * (see findMovedNodes).
  */

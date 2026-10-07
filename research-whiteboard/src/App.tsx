@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useReducer, useRef } from 'react';
 import { INITIAL_FILES, INITIAL_DASHBOARDS } from './data/initialData';
 import {
   FileItem,
@@ -14,15 +14,16 @@ import { Sidebar, PRESET_RESEARCH_PAPERS } from './components/Sidebar';
 import { TopNav } from './components/TopNav';
 import { WhiteboardCanvas, WhiteboardHandle } from './components/WhiteboardCanvas';
 import { PaperInspector } from './components/PaperInspector';
-import { LinkedPapersSidebar } from './components/LinkedPapersSidebar';
+import { GraphSidebar } from './components/GraphSidebar';
+import { EdgeFlowOverlay } from './components/EdgeFlowOverlay';
 import { AddPaperModal } from './components/AddPaperModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { TabBar } from './components/TabBar';
 import { getAllLinkedPapersForDashboard, isPaperOnDashboard } from './data/linkedPapersData';
-import { GraphManagerSidebar } from './components/GraphManagerSidebar';
 import { layoutCard } from './utils/excalidrawAdapter';
+import { EDGE_FLOW_IDLE, edgeFlowReducer, isEdgeFlowActive, isPickingNode } from './utils/edgeFlow';
 import * as graph from './utils/graphOps';
-import { RELATION_LABELS, inferRelationType, type NewNodeInput } from './utils/graphOps';
+import { RELATION_LABELS, type NewNodeInput } from './utils/graphOps';
 
 const EMPTY_VIEW: ViewTransform = { x: 100, y: 100, zoom: 1 };
 
@@ -54,14 +55,16 @@ export default function App() {
 
   // UI Panels State
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isLinkedPapersOpen, setIsLinkedPapersOpen] = useState(true);
-  const [isGraphManagerOpen, setIsGraphManagerOpen] = useState(true);
+  const [isGraphSidebarOpen, setIsGraphSidebarOpen] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isAddPaperModalOpen, setIsAddPaperModalOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
 
   // Selection State
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  // Interactive "Add edge" flow: pick source -> pick destination -> pick relationship -> edge is created
+  const [edgeFlow, dispatchEdgeFlow] = useReducer(edgeFlowReducer, EDGE_FLOW_IDLE);
 
   const canvasRef = useRef<WhiteboardHandle>(null);
 
@@ -122,6 +125,30 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Esc cancels the edge flow from anywhere (including while a text field in the overlay has focus)
+  const edgeFlowActive = isEdgeFlowActive(edgeFlow);
+  useEffect(() => {
+    if (!edgeFlowActive) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') dispatchEdgeFlow({ type: 'cancel' });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [edgeFlowActive]);
+
+  // If a node picked in the flow disappears (deleted in the sidebar / inspector), abandon the flow
+  useEffect(() => {
+    const ids =
+      edgeFlow.step === 'pick-target'
+        ? [edgeFlow.sourceId]
+        : edgeFlow.step === 'pick-type'
+        ? [edgeFlow.sourceId, edgeFlow.targetId]
+        : [];
+    if (ids.some((id) => !currentDashboard.paperNodes.some((n) => n.id === id))) {
+      dispatchEdgeFlow({ type: 'cancel' });
+    }
+  }, [edgeFlow, currentDashboard.paperNodes]);
+
   /* ------------------------------ files & tabs ------------------------------ */
 
   const handleOpenFile = (file: FileItem) => {
@@ -136,6 +163,7 @@ export default function App() {
   };
 
   const switchTab = (tabId: string) => {
+    dispatchEdgeFlow({ type: 'cancel' }); // a half-finished edge belongs to the board it was started on
     setActiveTabId(tabId);
     setSelectedNodeId(null);
     setIsInspectorOpen(false);
@@ -438,8 +466,23 @@ export default function App() {
     setSelectedNodeId(node.id);
   };
 
-  const handleGraphAddEdge = (sourceNodeId: string, targetNodeId: string, label: string) =>
-    addEdge({ sourceNodeId, targetNodeId, relationType: inferRelationType(label), label });
+  /* ------------------------------ add-edge flow ------------------------------ */
+
+  // Step 4: the user picked a relationship -> generate the edge through graphOps. React state changes, the canvas
+  // re-renders from it, and the adapter produces an arrow bound to both node ellipses (and locked).
+  const handleChooseRelation = (relationType: RelationType, label?: string) => {
+    if (edgeFlow.step !== 'pick-type') return;
+    addEdge({
+      sourceNodeId: edgeFlow.sourceId,
+      targetNodeId: edgeFlow.targetId,
+      relationType,
+      label: label?.trim() || RELATION_LABELS[relationType],
+    });
+    dispatchEdgeFlow({ type: 'cancel' }); // back to idle
+  };
+
+  // A linked paper dragged from the sidebar and dropped on the canvas (point = top-left of the new node)
+  const handleDropLinkedPaper = (paper: any, point: Point) => addLinkedPaper(paper, point.x, point.y);
 
   /* ---------------------------------- export / import ---------------------------------- */
 
@@ -527,16 +570,14 @@ export default function App() {
           title={currentDashboard.title}
           isSidebarOpen={isSidebarOpen}
           onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          isLinkedPapersOpen={isLinkedPapersOpen}
-          onToggleLinkedPapers={() => setIsLinkedPapersOpen(!isLinkedPapersOpen)}
+          isGraphSidebarOpen={isGraphSidebarOpen}
+          onToggleGraphSidebar={() => setIsGraphSidebarOpen(!isGraphSidebarOpen)}
           linkedPapersCount={dashboardLinkedPapersCount}
           onRenameTitle={handleRenameCurrentTitle}
           onExportPNG={handleExportPNG}
           onExportJSON={handleExportJSON}
           onImportJSON={handleImportJSON}
           onOpenShortcuts={() => setIsShortcutsOpen(true)}
-          isGraphManagerOpen={isGraphManagerOpen}
-          onToggleGraphManager={() => setIsGraphManagerOpen(!isGraphManagerOpen)}
         />
 
         <TabBar
@@ -563,32 +604,38 @@ export default function App() {
               onNodesMoved={handleNodesMoved}
               onSceneChange={handleSceneChange}
               onViewChange={handleViewChange}
+              isPickingNode={isPickingNode(edgeFlow)}
+              onPickNode={(nodeId) => dispatchEdgeFlow({ type: 'pick-node', nodeId })}
+              onDropLinkedPaper={handleDropLinkedPaper}
+            />
+
+            {/* Step prompts for the add-edge flow */}
+            <EdgeFlowOverlay
+              flow={edgeFlow}
+              nodes={currentDashboard.paperNodes}
+              edges={currentDashboard.paperEdges}
+              onBack={() => dispatchEdgeFlow({ type: 'back' })}
+              onCancel={() => dispatchEdgeFlow({ type: 'cancel' })}
+              onChooseRelation={handleChooseRelation}
             />
           </main>
 
-          <LinkedPapersSidebar
-            isOpen={isLinkedPapersOpen}
-            onClose={() => setIsLinkedPapersOpen(false)}
-            dashboardTitle={currentDashboard.title}
-            dashboardNodes={currentDashboard.paperNodes}
+          {/* Merged sidebar: linked-paper discovery (drag & drop) + node / edge management */}
+          <GraphSidebar
+            isOpen={isGraphSidebarOpen}
+            onClose={() => setIsGraphSidebarOpen(false)}
+            nodes={currentDashboard.paperNodes}
+            edges={currentDashboard.paperEdges}
             selectedNodeId={selectedNodeId}
             onSelectNode={handleLocateNode}
             onLocateNode={handleLocateNode}
             onAddLinkedPaperAsNode={handleAddLinkedPaperAsNode}
-          />
-
-          {/* The only place the graph is edited; the canvas just displays it */}
-          <GraphManagerSidebar
-            isOpen={isGraphManagerOpen}
-            onClose={() => setIsGraphManagerOpen(false)}
-            nodes={currentDashboard.paperNodes}
-            edges={currentDashboard.paperEdges}
-            selectedNodeId={selectedNodeId}
-            onLocateNode={handleLocateNode}
             onAddNode={handleGraphAddNode}
             onDeleteNode={(id) => removeNodes([id])}
-            onAddEdge={handleGraphAddEdge}
             onDeleteEdge={handleDeleteEdge}
+            isEdgeFlowActive={edgeFlowActive}
+            onStartAddEdge={() => dispatchEdgeFlow({ type: 'start' })}
+            onCancelAddEdge={() => dispatchEdgeFlow({ type: 'cancel' })}
           />
         </div>
       </div>

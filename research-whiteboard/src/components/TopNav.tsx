@@ -10,39 +10,34 @@ import {
   Check,
   Sparkles,
   Network,
-  GitBranch,
 } from 'lucide-react';
 
 interface TopNavProps {
   title: string;
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
-  isLinkedPapersOpen: boolean;
-  onToggleLinkedPapers: () => void;
+  isGraphSidebarOpen: boolean;
+  onToggleGraphSidebar: () => void;
   linkedPapersCount?: number;
   onRenameTitle: (newTitle: string) => void;
   onExportPNG: () => void;
   onExportJSON: () => void;
   onImportJSON: () => void;
   onOpenShortcuts: () => void;
-  isGraphManagerOpen: boolean;
-  onToggleGraphManager: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
   title,
   isSidebarOpen,
   onToggleSidebar,
-  isLinkedPapersOpen,
-  onToggleLinkedPapers,
+  isGraphSidebarOpen,
+  onToggleGraphSidebar,
   linkedPapersCount,
   onRenameTitle,
   onExportPNG,
   onExportJSON,
   onImportJSON,
   onOpenShortcuts,
-  isGraphManagerOpen,
-  onToggleGraphManager,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState(title);
@@ -118,37 +113,23 @@ export const TopNav: React.FC<TopNavProps> = ({
       {/* Right section: Action Buttons */}
       <div className="flex items-center space-x-1.5">
         <button
-          id="btn-toggle-linked-papers"
-          onClick={onToggleLinkedPapers}
-          title={isLinkedPapersOpen ? 'Hide Linked Papers Panel' : 'Show Linked Papers Panel'}
+          id="btn-toggle-graph-sidebar"
+          onClick={onToggleGraphSidebar}
+          title={isGraphSidebarOpen ? 'Hide Papers & Graph panel' : 'Show Papers & Graph panel (linked papers, add nodes & edges)'}
+          aria-pressed={isGraphSidebarOpen}
           className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
-            isLinkedPapersOpen
+            isGraphSidebarOpen
               ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-2xs'
               : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
           <Network className="w-3.5 h-3.5 text-indigo-600" />
-          <span className="hidden md:inline">Linked Papers</span>
+          <span className="hidden md:inline">Papers & Graph</span>
           {linkedPapersCount !== undefined && linkedPapersCount > 0 && (
             <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 text-indigo-700 font-bold">
               {linkedPapersCount}
             </span>
           )}
-        </button>
-
-        <button
-          id="btn-toggle-graph-manager"
-          onClick={onToggleGraphManager}
-          title={isGraphManagerOpen ? 'Hide Graph Panel' : 'Show Graph Panel (add / delete nodes & edges)'}
-          aria-pressed={isGraphManagerOpen}
-          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
-            isGraphManagerOpen
-              ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-2xs'
-              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
-          }`}
-        >
-          <GitBranch className="w-3.5 h-3.5 text-indigo-600" />
-          <span className="hidden md:inline">Graph</span>
         </button>
 
         <div className="w-px h-4 bg-slate-200 mx-0.5" />
