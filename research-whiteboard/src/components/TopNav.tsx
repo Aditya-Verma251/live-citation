@@ -10,6 +10,7 @@ import {
   Check,
   Sparkles,
   Network,
+  GitBranch,
 } from 'lucide-react';
 
 interface TopNavProps {
@@ -24,6 +25,8 @@ interface TopNavProps {
   onExportJSON: () => void;
   onImportJSON: () => void;
   onOpenShortcuts: () => void;
+  isGraphManagerOpen: boolean;
+  onToggleGraphManager: () => void;
 }
 
 export const TopNav: React.FC<TopNavProps> = ({
@@ -38,6 +41,8 @@ export const TopNav: React.FC<TopNavProps> = ({
   onExportJSON,
   onImportJSON,
   onOpenShortcuts,
+  isGraphManagerOpen,
+  onToggleGraphManager,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState(title);
@@ -129,6 +134,21 @@ export const TopNav: React.FC<TopNavProps> = ({
               {linkedPapersCount}
             </span>
           )}
+        </button>
+
+        <button
+          id="btn-toggle-graph-manager"
+          onClick={onToggleGraphManager}
+          title={isGraphManagerOpen ? 'Hide Graph Panel' : 'Show Graph Panel (add / delete nodes & edges)'}
+          aria-pressed={isGraphManagerOpen}
+          className={`px-2.5 py-1.5 rounded-lg border text-xs font-semibold flex items-center space-x-1.5 transition-colors ${
+            isGraphManagerOpen
+              ? 'bg-indigo-50 border-indigo-300 text-indigo-700 shadow-2xs'
+              : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+          }`}
+        >
+          <GitBranch className="w-3.5 h-3.5 text-indigo-600" />
+          <span className="hidden md:inline">Graph</span>
         </button>
 
         <div className="w-px h-4 bg-slate-200 mx-0.5" />

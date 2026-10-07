@@ -40,24 +40,37 @@ export interface WhiteboardElement {
 
 export type PaperStatus = 'to-read' | 'reading' | 'read' | 'seminal';
 
-export interface ResearchPaperNode {
+/*
+ * GRAPH MODEL - the single source of truth.
+ * These types know nothing about Excalidraw (no element ids, bindings, groups or lock flags).
+ * The adapter (utils/excalidrawAdapter.ts) translates them into Excalidraw elements, one-way.
+ */
+
+/** Minimal graph node: what the graph itself needs. */
+export interface PaperNode {
   id: string;
   title: string;
   authors: string;
+  abstract: string;
+  /** Top-left of the node's point (ellipse) in scene coordinates. */
+  x: number;
+  y: number;
+}
+
+/** Full app node = graph node + display / research metadata. */
+export interface ResearchPaperNode extends PaperNode {
   year: number | string;
   venue: string;
   arxivId?: string;
   url?: string;
-  abstract: string;
   keyInsights: string[];
   tags: string[];
   citationsCount?: number;
   status: PaperStatus;
-  color: string; // card accent color
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  color: string; // accent colour of the point
+  /** @deprecated Legacy card size. Nodes are points now; kept optional so saved boards still load. */
+  width?: number;
+  height?: number;
 }
 
 export type RelationType =
@@ -69,14 +82,30 @@ export type RelationType =
   | 'theoretical-foundation'
   | 'custom';
 
-export interface ResearchPaperEdge {
+/** Minimal graph edge. `relationType` + `label` drive how the arrow is styled. */
+export interface PaperEdge {
   id: string;
   sourceNodeId: string;
   targetNodeId: string;
   relationType: RelationType;
+  /** Text drawn on the arrow (e.g. "Cites"). */
   label?: string;
-  style: 'solid' | 'dashed' | 'dotted';
-  color: string;
+}
+
+/** Full app edge. How it is drawn (colour, dashes) is derived from `relationType` by the adapter. */
+export interface ResearchPaperEdge extends PaperEdge {
+  /** Free-text note about why the two papers are connected. */
+  description?: string;
+}
+
+/** Input for creating an edge. */
+export interface EdgeMetadata {
+  sourceNodeId: string;
+  targetNodeId: string;
+  relationType: RelationType;
+  /** Text drawn on the arrow. Falls back to the relation type's default label. */
+  label?: string;
+  description?: string;
 }
 
 export interface ViewTransform {

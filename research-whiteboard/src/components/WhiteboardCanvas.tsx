@@ -15,8 +15,14 @@ import {
   buildPaperElements,
   legacyToElements,
   isPaperOwned,
-  parseOwnedId,
   cardElementId,
+  layoutCard,
+  hitTestPaperNode,
+  resolveNodeId,
+  graphHasDrifted,
+  findMovedNodes,
+  relayoutEdges,
+  parseOwnedId,
 } from "../utils/excalidrawAdapter";
 import {
   ResearchPaperNode,
@@ -25,16 +31,26 @@ import {
   ViewTransform,
   Point,
 } from "../types";
+import { HoverCard } from "./HoverCard";
+
+/** Two clicks on the same node within this window count as a double-click. */
+const DOUBLE_CLICK_MS = 300;
 
 export interface WhiteboardHandle {
-  /** Scroll the canvas so the given paper card is centered. */
+  /** Scroll the canvas so the given node is centered. */
   locateNode: (nodeId: string) => void;
-  /** Center of the visible area, in scene coordinates (used to place new cards). */
+  /** Center of the visible area, in scene coordinates (used to place new nodes). */
   getViewportCenter: () => Point;
   /** Download the current canvas as a PNG. */
   exportPNG: (fileName: string) => Promise<void>;
 }
 
+/**
+ * The graph (React state) is rendered onto the canvas:
+ *   graph --buildPaperElements--> unlocked Excalidraw elements --updateScene--> canvas
+ * The ONLY thing that flows back is node positions (dragging), via `onNodesMoved`. Nodes and edges
+ * can be added / deleted only from GraphManagerSidebar; deleting them on the canvas is reverted.
+ */
 interface WhiteboardCanvasProps {
   paperNodes: ResearchPaperNode[];
   paperEdges: ResearchPaperEdge[];
@@ -42,111 +58,211 @@ interface WhiteboardCanvasProps {
   sceneElements?: any[];
   viewTransform: ViewTransform;
 
+  /** A node was clicked (id) or empty canvas was clicked (null). */
   onSelectNode: (nodeId: string | null) => void;
+  /** A node was double-clicked (two clicks within 300ms) -> open the inspector. */
+  onOpenNode: (nodeId: string) => void;
+  /** Nodes were dragged on the canvas: new top-left coordinates keyed by node id. */
   onNodesMoved: (positions: Record<string, Point>) => void;
-  onNodesDeleted: (nodeIds: string[]) => void;
-  onEdgesDeleted: (edgeIds: string[]) => void;
+  /** Free-hand drawings (NOT part of the graph) changed - persisted per board. */
   onSceneChange: (elements: any[]) => void;
   onViewChange: (view: ViewTransform) => void;
-  onDropPaper: (paper: any, scenePos: Point) => void;
 }
 
-/** Everything that affects how paper cards / arrows look. If it changes, we rebuild them. */
-const paperSignature = (nodes: ResearchPaperNode[], edges: ResearchPaperEdge[]) =>
+/** Everything that affects how nodes / arrows look. If it changes, the graph elements are rebuilt. */
+const graphSignature = (nodes: ResearchPaperNode[], edges: ResearchPaperEdge[]) =>
   JSON.stringify([
-    nodes.map((n) => [
-      n.id, n.title, n.authors, n.year, n.venue, n.status, n.color,
-      n.x, n.y, n.width, n.keyInsights,
-    ]),
-    edges.map((e) => [e.id, e.sourceNodeId, e.targetNodeId, e.label, e.style, e.color]),
+    nodes.map((n) => [n.id, n.title, n.authors, n.color, n.x, n.y]),
+    edges.map((e) => [e.id, e.sourceNodeId, e.targetNodeId, e.relationType, e.label]),
   ]);
 
 const freeSignature = (els: any[]) => els.map((e) => `${e.id}:${e.version}`).join("|");
 
-export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasProps>(
-  (props, ref) => {
-    const {
-      paperNodes,
-      paperEdges,
-      legacyElements,
-      sceneElements,
-      viewTransform,
-      onSelectNode,
-      onNodesMoved,
-      onNodesDeleted,
-      onEdgesDeleted,
-      onSceneChange,
-      onViewChange,
-      onDropPaper,
-    } = props;
+interface CardInfo {
+  nodeId: string;
+  left: number;
+  top: number;
+  pinned: boolean;
+}
 
-    const [api, setApi] = useState<any>(null);
-    const [isDragOver, setIsDragOver] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
+/** Screen position (px inside the canvas container) just below a node's point + title. */
+const nodeAnchor = (n: ResearchPaperNode, s: any): { left: number; top: number } => {
+  const L = layoutCard(n);
+  return {
+    left: (n.x + s.scrollX) * s.zoom.value,
+    top: (n.y + L.offsetY + L.height + s.scrollY) * s.zoom.value,
+  };
+};
 
-    // Always call the latest callbacks / data from inside Excalidraw's event handlers.
-    const live = useRef(props);
-    live.current = props;
+export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasProps>((props, ref) => {
+  const {
+    paperNodes,
+    paperEdges,
+    legacyElements,
+    sceneElements,
+    viewTransform,
+  } = props;
 
-    const renderedSigRef = useRef("");
-    const freeSigRef = useRef("");
-    const lastSelectedRef = useRef<string | null>(null);
-    const viewTimer = useRef<number | undefined>(undefined);
+  const [api, setApi] = useState<any>(null);
+  const apiRef = useRef<any>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-    // Scene used only for the very first render of this canvas instance.
-    const initialData = useMemo(() => {
-      const free =
-        sceneElements && sceneElements.length > 0
-          ? sceneElements
-          : legacyToElements(legacyElements || []);
-      const paper = buildPaperElements(paperNodes, paperEdges);
-      renderedSigRef.current = paperSignature(paperNodes, paperEdges);
-      freeSigRef.current = freeSignature(free.filter((e: any) => !e.isDeleted));
-      return {
-        elements: [...free, ...paper],
-        appState: {
-          viewBackgroundColor: "#f8fafc",
-          scrollX: viewTransform.x,
-          scrollY: viewTransform.y,
-          zoom: { value: viewTransform.zoom } as any,
-          currentItemFontFamily: 2,
-        },
-        scrollToContent: false,
-      };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+  // Floating card: transient on hover, pinned (interactive) after a click.
+  const [card, setCard] = useState<CardInfo | null>(null);
+  const hoverIdRef = useRef<string | null>(null);
+  const pinnedRef = useRef(false);
 
-    /* ---- app state -> canvas: rebuild paper cards only when something visual changed ---- */
-    useEffect(() => {
-      if (!api) return;
-      const sig = paperSignature(paperNodes, paperEdges);
-      if (sig === renderedSigRef.current) return;
-      renderedSigRef.current = sig;
+  // Click bookkeeping: double-click detection + swallowing Excalidraw's own dblclick behaviour.
+  const lastClickRef = useRef<{ nodeId: string | null; time: number } | null>(null);
+  const lastNodeHitRef = useRef<string | null>(null);
 
-      const free = api.getSceneElementsIncludingDeleted().filter((el: any) => !isPaperOwned(el));
-      api.updateScene({ elements: [...free, ...buildPaperElements(paperNodes, paperEdges)] });
-    }, [api, paperNodes, paperEdges]);
+  // Always read the latest props from inside Excalidraw's (stable) event handlers.
+  const live = useRef(props);
+  live.current = props;
 
-    /* ---- canvas -> app state ---- */
-    const handleChange = useCallback((elements: readonly any[], appState: any) => {
+  const renderedSigRef = useRef("");
+  const freeSigRef = useRef("");
+  const driftFixesRef = useRef(0);
+  const viewTimer = useRef<number | undefined>(undefined);
+  // Node positions (nodeId -> x,y) the edges were last laid out for. Lets us detect "a node moved".
+  const layoutPosRef = useRef<Map<string, Point>>(new Map());
+  const rememberLayout = (nodes: ResearchPaperNode[]) => {
+    layoutPosRef.current = new Map(nodes.map((n) => [n.id, { x: n.x, y: n.y }]));
+  };
+
+  /* ---- graph -> canvas (the ONLY write path into the graph elements) ---- */
+  const pushGraph = useCallback(() => {
+    const a = apiRef.current;
+    if (!a) return;
+    const { paperNodes: nodes, paperEdges: edges } = live.current;
+    renderedSigRef.current = graphSignature(nodes, edges);
+    rememberLayout(nodes);
+    const free = a.getSceneElementsIncludingDeleted().filter((el: any) => !isPaperOwned(el));
+    a.updateScene({ elements: [...free, ...buildPaperElements(nodes, edges)] });
+  }, []);
+
+  // Scene used only for the very first render of this canvas instance.
+  const initialData = useMemo(() => {
+    const free =
+      sceneElements && sceneElements.length > 0 ? sceneElements : legacyToElements(legacyElements || []);
+    const graph = buildPaperElements(paperNodes, paperEdges);
+    renderedSigRef.current = graphSignature(paperNodes, paperEdges);
+    rememberLayout(paperNodes);
+    freeSigRef.current = freeSignature(free.filter((e: any) => !e.isDeleted));
+    return {
+      elements: [...free, ...graph],
+      appState: {
+        viewBackgroundColor: "#f8fafc",
+        scrollX: viewTransform.x,
+        scrollY: viewTransform.y,
+        zoom: { value: viewTransform.zoom } as any,
+        currentItemFontFamily: 2,
+      },
+      scrollToContent: false,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Whenever the React graph changes (sidebar add/delete node/edge), re-translate and push it.
+  useEffect(() => {
+    if (!api) return;
+    if (graphSignature(paperNodes, paperEdges) === renderedSigRef.current) return;
+    pushGraph();
+  }, [api, paperNodes, paperEdges, pushGraph]);
+
+  // A card for a node that no longer exists (deleted in the sidebar) must go away.
+  useEffect(() => {
+    if (card && !paperNodes.some((n) => n.id === card.nodeId)) {
+      hoverIdRef.current = null;
+      pinnedRef.current = false;
+      setCard(null);
+    }
+  }, [paperNodes, card]);
+
+  const clearCard = useCallback(() => {
+    hoverIdRef.current = null;
+    pinnedRef.current = false;
+    setCard(null);
+  }, []);
+
+  /* ---- clicks on the graph elements ---- */
+  // We hit-test the point/title ELEMENTS ourselves and map their ids back to graph nodes. (Excalidraw's own hit result is
+  // not populated yet when onPointerDown fires, hence the fallback order below.)
+  const handlePointerDown = useCallback(
+    (_tool: any, pointerDownState: any) => {
+      const a = apiRef.current;
+      const p = live.current;
+      if (!a || !pointerDownState?.origin) return;
+
+      const s = a.getAppState();
+      const nodeId =
+        resolveNodeId(pointerDownState.hit?.element?.id, p.paperNodes) ??
+        hitTestPaperNode(a.getSceneElements(), p.paperNodes, pointerDownState.origin as Point, s.zoom.value);
+      lastNodeHitRef.current = nodeId;
+
+      // Double click: same node twice within 300ms -> open the inspector
+      const now = Date.now();
+      const last = lastClickRef.current;
+      if (nodeId && last && last.nodeId === nodeId && now - last.time <= DOUBLE_CLICK_MS) {
+        lastClickRef.current = null;
+        clearCard();
+        p.onOpenNode(nodeId);
+        return;
+      }
+      lastClickRef.current = { nodeId, time: now };
+
+      p.onSelectNode(nodeId);
+
+      // Single click: pin the card to the clicked node's position (empty canvas closes it)
+      const node = nodeId ? p.paperNodes.find((n) => n.id === nodeId) : undefined;
+      if (!node) return clearCard();
+      hoverIdRef.current = node.id;
+      pinnedRef.current = true;
+      setCard({ nodeId: node.id, ...nodeAnchor(node, s), pinned: true });
+    },
+    [clearCard]
+  );
+
+  /* ---- live edge tracking ---- */
+  // Excalidraw is supposed to drag bound arrows along with their node, but that only works when its
+  // internal binding data is complete, and it isn't (the arrows stayed put until a rebuild, e.g. the
+  // delete-restore, re-routed them). So we do it ourselves: on EVERY onChange (including each frame of a
+  // drag) find node ellipses that moved since the edges were last laid out, and patch just the
+  // arrows (and their label text) touching them via updateScene. The patch is idempotent - once the
+  // arrows match the ellipses nothing more is dispatched - so this can't loop.
+  const trackEdges = useCallback((elements: readonly any[]) => {
+    const a = apiRef.current;
+    if (!a) return;
+    const known = layoutPosRef.current;
+    const moved = new Set<string>();
+    for (const el of elements) {
+      if (el.isDeleted || el.type !== "ellipse") continue;
+      const parsed = parseOwnedId(el.id);
+      if (!parsed || parsed.part !== "card") continue;
+      const last = known.get(parsed.baseId);
+      if (!last) continue; // brand-new node: the graph->canvas rebuild will lay it out
+      if (Math.abs(el.x - last.x) > 0.01 || Math.abs(el.y - last.y) > 0.01) {
+        moved.add(parsed.baseId);
+        known.set(parsed.baseId, { x: el.x, y: el.y });
+      }
+    }
+    if (moved.size === 0) return;
+
+    const patch = relayoutEdges(elements, moved, live.current.paperEdges);
+    if (!patch) return;
+    a.updateScene({
+      elements: elements.map((el) => patch.get(el.id) ?? el),
+      captureUpdate: "NEVER", // layout fix-up, not a user action: keep it out of undo/redo
+    } as any);
+  }, []);
+
+  /* ---- canvas -> app: free-hand drawings + node positions (never graph structure) ---- */
+  const handleChange = useCallback(
+    (elements: readonly any[], appState: any) => {
       const p = live.current;
 
-      // 1) Selection -> open the inspector for a single selected paper
-      const selected = Object.keys(appState.selectedElementIds || {}).filter(
-        (id) => appState.selectedElementIds[id]
-      );
-      const nodeIds = new Set<string>();
-      let hasOther = false;
-      for (const id of selected) {
-        const parsed = parseOwnedId(id);
-        if (parsed && p.paperNodes.some((n) => n.id === parsed.baseId)) nodeIds.add(parsed.baseId);
-        else hasOther = true;
-      }
-      const nextSelected = nodeIds.size === 1 && !hasOther ? [...nodeIds][0] : null;
-      if (nextSelected !== lastSelectedRef.current) {
-        lastSelectedRef.current = nextSelected;
-        p.onSelectNode(nextSelected);
-      }
+      // Runs BEFORE the mid-gesture early return below, so arrows follow the node frame by frame.
+      trackEdges(elements);
 
       // Don't commit anything while the user is mid-gesture.
       if (
@@ -158,163 +274,174 @@ export const WhiteboardCanvas = forwardRef<WhiteboardHandle, WhiteboardCanvasPro
         return;
       }
 
-      // 2) Moves + deletes of paper cards / arrows
-      const moved: Record<string, Point> = {};
-      const deletedNodes: string[] = [];
-      const deletedEdges: string[] = [];
-
-      for (const el of elements) {
-        const parsed = parseOwnedId(el.id);
-        if (!parsed) continue;
-        if (parsed.part === "card") {
-          const node = p.paperNodes.find((n) => n.id === parsed.baseId);
-          if (!node) continue;
-          if (el.isDeleted) deletedNodes.push(node.id);
-          else if (Math.abs(el.x - node.x) > 0.5 || Math.abs(el.y - node.y) > 0.5) {
-            moved[node.id] = { x: Math.round(el.x), y: Math.round(el.y) };
-          }
-        } else if (parsed.part === "edge" && el.isDeleted) {
-          if (p.paperEdges.some((e) => e.id === parsed.baseId)) deletedEdges.push(parsed.baseId);
+      // 1) Deletion guard: nodes/edges may only be deleted from GraphManagerSidebar. If a graph element
+      //    vanished from the scene (Delete key, eraser, undo), restore everything from React state.
+      //    Capped so a persistent mismatch can't loop forever.
+      if (graphHasDrifted(elements, p.paperNodes, p.paperEdges)) {
+        if (driftFixesRef.current < 3) {
+          driftFixesRef.current += 1;
+          window.setTimeout(pushGraph, 0);
         }
+        return; // don't sync positions / persist from a scene that is about to be replaced
       }
+      driftFixesRef.current = 0;
 
+      // 2) Drag sync: the gesture is over (early return above), so any ellipse whose x/y differs from
+      //    its PaperNode is a finished move. Comparing against state means this only fires once per
+      //    move: after the update the coordinates match and nothing is dispatched.
+      const moved = findMovedNodes(elements, p.paperNodes);
       if (Object.keys(moved).length > 0) {
-        // Pre-compute the signature so the effect above does NOT rebuild the cards we just moved.
-        renderedSigRef.current = paperSignature(
-          p.paperNodes.map((n) => (moved[n.id] ? { ...n, ...moved[n.id] } : n)),
-          p.paperEdges
-        );
+        // Pre-mark the new graph as "already rendered" so the graph->canvas effect doesn't rebuild
+        // (and re-push) elements that already sit at these coordinates.
+        const nextNodes = p.paperNodes.map((n) => (moved[n.id] ? { ...n, ...moved[n.id] } : n));
+        renderedSigRef.current = graphSignature(nextNodes, p.paperEdges);
         p.onNodesMoved(moved);
       }
-      if (deletedNodes.length) p.onNodesDeleted(deletedNodes);
-      if (deletedEdges.length) p.onEdgesDeleted(deletedEdges);
 
-      // 3) Free-hand shapes/text the user drew -> persist per board
+      // Free-hand shapes/text the user drew (non-graph) -> persist per board
       const free = elements.filter((el) => !isPaperOwned(el) && !el.isDeleted);
       const fSig = freeSignature(free);
       if (fSig !== freeSigRef.current) {
         freeSigRef.current = fSig;
         p.onSceneChange(free as any[]);
       }
-    }, []);
+    },
+    [pushGraph, trackEdges]
+  );
 
-    /* ---- remember pan / zoom (debounced) ---- */
-    const handleScroll = useCallback((scrollX: number, scrollY: number, zoom: any) => {
+  /* ---- hover preview: Excalidraw has no CSS hover on canvas elements, so hit-test the pointer ---- */
+  const clearHover = useCallback(() => {
+    if (!pinnedRef.current) clearCard(); // a pinned card stays until the user closes it
+  }, [clearCard]);
+
+  const handlePointerUpdate = useCallback(
+    (payload: any) => {
+      const a = apiRef.current;
+      if (!a || !payload?.pointer || pinnedRef.current) return;
+      if (payload.button === "down") return clearHover();
+
+      const nodeId = hitTestPaperNode(
+        a.getSceneElements(),
+        live.current.paperNodes,
+        payload.pointer,
+        a.getAppState().zoom.value
+      );
+      if (!nodeId) return clearHover();
+      if (nodeId === hoverIdRef.current) return;
+
+      const node = live.current.paperNodes.find((n) => n.id === nodeId);
+      if (!node) return;
+      hoverIdRef.current = nodeId;
+      setCard({ nodeId, ...nodeAnchor(node, a.getAppState()), pinned: false });
+    },
+    [clearHover]
+  );
+
+  // The inspector opens from onPointerDown (300ms rule). Without this, Excalidraw would also handle the
+  // native double-click itself ("edit text in shape" / "enter group").
+  const onDoubleClickCapture = (e: React.MouseEvent) => {
+    if (!lastNodeHitRef.current) return;
+    e.stopPropagation();
+    e.preventDefault();
+  };
+
+  /* ---- remember pan / zoom (debounced) ---- */
+  const handleScroll = useCallback(
+    (scrollX: number, scrollY: number, zoom: any) => {
+      clearCard(); // the card is positioned in screen space, so close it when the view moves
       window.clearTimeout(viewTimer.current);
       viewTimer.current = window.setTimeout(() => {
         live.current.onViewChange({ x: scrollX, y: scrollY, zoom: zoom.value });
       }, 300);
-    }, []);
-    useEffect(() => () => window.clearTimeout(viewTimer.current), []);
+    },
+    [clearCard]
+  );
+  useEffect(() => () => window.clearTimeout(viewTimer.current), []);
 
-    /* ---- methods the parent can call ---- */
-    useImperativeHandle(
-      ref,
-      () => ({
-        locateNode: (nodeId) => {
-          if (!api) return;
-          const card = api.getSceneElements().find((e: any) => e.id === cardElementId(nodeId));
-          if (card) api.scrollToContent(card, { animate: true, fitToViewport: false });
-        },
-        getViewportCenter: () => {
-          if (!api) return { x: 300, y: 250 };
-          const s = api.getAppState();
-          return {
-            x: s.width / 2 / s.zoom.value - s.scrollX,
-            y: s.height / 2 / s.zoom.value - s.scrollY,
-          };
-        },
-        exportPNG: async (fileName) => {
-          if (!api) return;
-          const blob: Blob = await exportToBlob({
-            elements: api.getSceneElements(),
-            appState: { ...api.getAppState(), exportBackground: true, viewBackgroundColor: "#f8fafc" },
-            files: api.getFiles(),
-            mimeType: "image/png",
-          });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = fileName;
-          a.click();
-          URL.revokeObjectURL(url);
-        },
-      }),
-      [api]
-    );
-
-    /* ---- drag a paper from the Linked Papers sidebar onto the canvas ---- */
-    const isPaperDrag = (e: React.DragEvent) =>
-      Array.from(e.dataTransfer.types).includes("application/json");
-
-    const onDragOverCapture = (e: React.DragEvent) => {
-      if (!isPaperDrag(e)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      e.dataTransfer.dropEffect = "copy";
-      if (!isDragOver) setIsDragOver(true);
-    };
-
-    const onDropCapture = (e: React.DragEvent) => {
-      if (!isPaperDrag(e)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragOver(false);
-      if (!api || !containerRef.current) return;
-      try {
-        const paper = JSON.parse(e.dataTransfer.getData("application/json"));
-        const rect = containerRef.current.getBoundingClientRect();
+  /* ---- methods the parent can call ---- */
+  useImperativeHandle(
+    ref,
+    () => ({
+      locateNode: (nodeId) => {
+        if (!api) return;
+        const el = api.getSceneElements().find((e: any) => e.id === cardElementId(nodeId));
+        if (el) api.scrollToContent(el, { animate: true, fitToViewport: false });
+      },
+      getViewportCenter: () => {
+        if (!api) return { x: 300, y: 250 };
         const s = api.getAppState();
-        onDropPaper(paper, {
-          x: (e.clientX - rect.left) / s.zoom.value - s.scrollX,
-          y: (e.clientY - rect.top) / s.zoom.value - s.scrollY,
+        return {
+          x: s.width / 2 / s.zoom.value - s.scrollX,
+          y: s.height / 2 / s.zoom.value - s.scrollY,
+        };
+      },
+      exportPNG: async (fileName) => {
+        if (!api) return;
+        const blob: Blob = await exportToBlob({
+          elements: api.getSceneElements(),
+          appState: { ...api.getAppState(), exportBackground: true, viewBackgroundColor: "#f8fafc" },
+          files: api.getFiles(),
+          mimeType: "image/png",
         });
-      } catch {
-        /* not one of our drags */
-      }
-    };
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+    }),
+    [api]
+  );
 
-    return (
-      <div
-        ref={containerRef}
-        style={{ position: "absolute", inset: 0 }}
-        onDragOverCapture={onDragOverCapture}
-        onDropCapture={onDropCapture}
-        onDragLeave={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false);
+  const cardNode = card ? paperNodes.find((n) => n.id === card.nodeId) : undefined;
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ position: "absolute", inset: 0 }}
+      onDoubleClickCapture={onDoubleClickCapture}
+      onPointerLeave={clearHover}
+    >
+      <Excalidraw
+        excalidrawAPI={(a) => {
+          apiRef.current = a;
+          setApi(a);
         }}
-      >
-        <Excalidraw
-          excalidrawAPI={(a) => setApi(a)}
-          initialData={initialData as any}
-          onChange={handleChange}
-          onScrollChange={handleScroll}
-          UIOptions={{
-            canvasActions: {
-              loadScene: false,
-              saveToActiveFile: false,
-              export: false,
-              clearCanvas: false,
-              toggleTheme: false,
-            },
+        initialData={initialData as any}
+        onChange={handleChange}
+        onScrollChange={handleScroll}
+        onPointerDown={handlePointerDown}
+        onPointerUpdate={handlePointerUpdate}
+        UIOptions={{
+          canvasActions: {
+            loadScene: false,
+            saveToActiveFile: false,
+            export: false,
+            clearCanvas: false,
+            toggleTheme: false,
+          },
+        }}
+      />
+
+      {/* Hover / click card: plain HTML positioned over the canvas */}
+      {card && cardNode && (
+        <HoverCard
+          paper={cardNode}
+          left={card.left}
+          top={card.top}
+          containerWidth={containerRef.current?.clientWidth ?? 800}
+          containerHeight={containerRef.current?.clientHeight ?? 600}
+          pinned={card.pinned}
+          onClose={clearCard}
+          onOpenDetails={() => {
+            clearCard();
+            live.current.onOpenNode(cardNode.id);
           }}
         />
-        {isDragOver && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 8,
-              border: "2px dashed #6366f1",
-              borderRadius: 12,
-              background: "rgba(99,102,241,0.06)",
-              pointerEvents: "none",
-              zIndex: 5,
-            }}
-          />
-        )}
-      </div>
-    );
-  }
-);
+      )}
+    </div>
+  );
+});
 
 WhiteboardCanvas.displayName = "WhiteboardCanvas";

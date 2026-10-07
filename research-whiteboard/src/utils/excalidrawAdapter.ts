@@ -1,17 +1,24 @@
 import { convertToExcalidrawElements } from "@excalidraw/excalidraw";
+import { inferRelationType } from "./graphOps";
 import type {
   ResearchPaperNode,
   ResearchPaperEdge,
   WhiteboardElement,
-  PaperStatus,
+  RelationType,
+  Point,
 } from "../types";
 
 /**
+ * ADAPTER: graph (React state) -> Excalidraw elements.
+ * Generated elements are UNLOCKED so users can drag nodes. The only thing the canvas writes back is
+ * node POSITIONS (WhiteboardCanvas.onChange). Structural edits (add / delete nodes and edges) happen
+ * only in GraphManagerSidebar -> graphOps -> React state -> buildPaperElements -> updateScene.
+ *
  * ID CONVENTION (this is what keeps the canvas and the app state in sync)
- *   paper card parts : `${nodeId}::card | ::meta | ::title | ::authors | ::insights | ::status`
+ *   paper node parts : `${nodeId}::card` (the ellipse / point) and `${nodeId}::title` (the text)
  *   edge arrow       : `${edgeId}::edge`
  *   anything else    : a free-hand element the user drew -> saved as-is
- * Every part of one card shares the group `grp::${nodeId}` so it moves as one.
+ * Point + title share the group `grp::${nodeId}` so they move as one.
  */
 const SEP = "::";
 
@@ -32,6 +39,80 @@ export const isPaperOwned = (el: any): boolean => {
     return true;
   }
   return false;
+};
+
+
+/* --------------------------- click -> node lookup --------------------------- */
+
+/** `paper-1::card` / `paper-1::title` -> `paper-1`. Anything else (arrows, free shapes) -> null. */
+export const resolveNodeId = (
+  elementId: string | null | undefined,
+  nodes: { id: string }[]
+): string | null => {
+  if (!elementId) return null;
+  const parsed = parseOwnedId(elementId);
+  if (!parsed || (parsed.part !== "card" && parsed.part !== "title")) return null;
+  return nodes.some((n) => n.id === parsed.baseId) ? parsed.baseId : null;
+};
+
+/**
+ * Finds the paper node under a scene-space point by testing the point/title ELEMENTS (topmost first)
+ * and mapping the element id back to its node. Used because Excalidraw's own hit-test result is not
+ * populated yet when `onPointerDown` fires.
+ */
+export const hitTestPaperNode = (
+  elements: readonly any[],
+  nodes: { id: string }[],
+  point: Point,
+  zoom: number
+): string | null => {
+  const slop = 6 / (zoom || 1);
+  for (let i = elements.length - 1; i >= 0; i--) {
+    const el = elements[i];
+    if (el.isDeleted) continue;
+    const nodeId = resolveNodeId(el.id, nodes);
+    if (!nodeId) continue;
+    if (
+      point.x >= el.x - slop &&
+      point.x <= el.x + el.width + slop &&
+      point.y >= el.y - slop &&
+      point.y <= el.y + el.height + slop
+    ) {
+      return nodeId;
+    }
+  }
+  return null;
+};
+
+/* ------------------------------ edge styling ------------------------------ */
+
+interface ArrowLook {
+  strokeColor: string;
+  strokeStyle: "solid" | "dashed" | "dotted";
+  /** null = sharp corners, { type: 2 } = rounded / curved (shows once the arrow has a bend point) */
+  roundness: { type: number } | null;
+  strokeWidth: number;
+}
+
+const EDGE_LOOKS: Record<Exclude<RelationType, "custom">, ArrowLook> = {
+  cites:                    { strokeColor: "#64748b", strokeStyle: "solid",  roundness: null,       strokeWidth: 1 },
+  extends:                  { strokeColor: "#4f46e5", strokeStyle: "solid",  roundness: { type: 2 }, strokeWidth: 2 },
+  improves:                 { strokeColor: "#059669", strokeStyle: "dashed", roundness: { type: 2 }, strokeWidth: 2 },
+  contradicts:              { strokeColor: "#dc2626", strokeStyle: "dotted", roundness: null,       strokeWidth: 2 },
+  benchmarks:               { strokeColor: "#d97706", strokeStyle: "dashed", roundness: null,       strokeWidth: 2 },
+  "theoretical-foundation": { strokeColor: "#7c3aed", strokeStyle: "solid",  roundness: { type: 2 }, strokeWidth: 2 },
+};
+
+/** Look for an edge, derived ONLY from its type (or label when the type is 'custom'). */
+export const getArrowLook = (e: ResearchPaperEdge): ArrowLook => {
+  const type: RelationType =
+    e.relationType && e.relationType !== "custom"
+      ? e.relationType
+      : e.label
+      ? inferRelationType(e.label)
+      : "custom";
+  if (type !== "custom") return EDGE_LOOKS[type];
+  return { strokeColor: "#475569", strokeStyle: "solid", roundness: { type: 2 }, strokeWidth: 2 };
 };
 
 /* ----------------------------- text helpers ------------------------------ */
@@ -63,161 +144,321 @@ const wrapText = (text: string, maxChars: number): string[] => {
   return lines.length ? lines : [""];
 };
 
-/* ------------------------------ card layout ------------------------------ */
+/* ------------------------------ node layout ------------------------------ */
+// A paper is now a small point (ellipse) with its title next to it.
+// node.x / node.y are the TOP-LEFT of the ellipse, so dragging the ellipse maps 1:1 to node.x / node.y.
 
-const PAD = 16;
-const LH = 1.2; // slightly above Excalidraw's real line-height (1.15-1.25) so text never overflows the card
-const FS_TITLE = 16;
-const FS_SMALL = 12;
-export const CARD_MIN_WIDTH = 280;
+export const POINT_DIAMETER = 22;
+const LABEL_GAP = 8;
+const FS_LABEL = 14;
+const LABEL_LH = 1.25;
+const LABEL_MAX_CHARS = 26;
+const LABEL_MAX_LINES = 3;
 
-const STATUS_LABEL: Record<PaperStatus, string> = {
-  seminal: "SEMINAL",
-  reading: "READING",
-  read: "READ",
-  "to-read": "TO READ",
-};
-
-const STATUS_COLOR: Record<PaperStatus, string> = {
-  seminal: "#b45309",
-  reading: "#0369a1",
-  read: "#047857",
-  "to-read": "#64748b",
-};
-
-export interface CardLayout {
+export interface NodeLayout {
+  /** Footprint of point + title, measured from node.x */
   width: number;
   height: number;
-  meta: { y: number; text: string };
-  title: { y: number; text: string };
-  authors: { y: number; text: string };
-  insights: { y: number; text: string } | null;
-  status: { y: number; text: string; color: string };
+  /** Where the footprint's top edge sits relative to node.y (<= 0 when the title is taller than the point) */
+  offsetY: number;
+  label: { x: number; y: number; text: string };
 }
 
-/** Computes the size of a card from its content. Also exported so the app can place new cards. */
-export const layoutCard = (p: ResearchPaperNode): CardLayout => {
-  const width = Math.max(p.width || 0, CARD_MIN_WIDTH);
-  const inner = width - PAD * 2;
-  const titleChars = Math.floor(inner / (FS_TITLE * 0.56));
-  const smallChars = Math.floor(inner / (FS_SMALL * 0.55));
-
-  let titleLines = wrapText(p.title || "Untitled paper", titleChars);
-  if (titleLines.length > 3) {
-    titleLines = titleLines.slice(0, 3);
-    titleLines[2] = truncate(titleLines[2] + "…", titleChars);
+/** Size of a paper node (point + title). Exported so the app can place new nodes and hit-test hovers. */
+export const layoutCard = (p: ResearchPaperNode): NodeLayout => {
+  let lines = wrapText(p.title || "Untitled paper", LABEL_MAX_CHARS);
+  if (lines.length > LABEL_MAX_LINES) {
+    lines = lines.slice(0, LABEL_MAX_LINES);
+    lines[LABEL_MAX_LINES - 1] = truncate(lines[LABEL_MAX_LINES - 1] + "…", LABEL_MAX_CHARS);
   }
-  const insightLines = (p.keyInsights || [])
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((t) => "• " + truncate(t, smallChars - 2));
+  const labelW = Math.ceil(Math.max(...lines.map((l) => l.length)) * FS_LABEL * 0.56);
+  const labelH = Math.ceil(lines.length * FS_LABEL * LABEL_LH);
+  const labelY = POINT_DIAMETER / 2 - labelH / 2; // vertically centred on the point
 
-  const smallH = FS_SMALL * LH;
-  let y = PAD;
-
-  const meta = { y, text: `${p.year}  ·  ${truncate(p.venue || "", smallChars - 8)}` };
-  y += smallH + 6;
-
-  const title = { y, text: titleLines.join("\n") };
-  y += titleLines.length * FS_TITLE * LH + 6;
-
-  const authors = { y, text: truncate(p.authors || "Unknown authors", smallChars) };
-  y += smallH + 10;
-
-  let insights: CardLayout["insights"] = null;
-  if (insightLines.length) {
-    insights = { y, text: insightLines.join("\n") };
-    y += insightLines.length * smallH + 10;
-  }
-
-  const status = {
-    y,
-    text: STATUS_LABEL[p.status] || "TO READ",
-    color: STATUS_COLOR[p.status] || "#64748b",
+  return {
+    width: POINT_DIAMETER + LABEL_GAP + labelW,
+    height: Math.max(POINT_DIAMETER, labelH),
+    offsetY: Math.min(0, labelY),
+    label: { x: POINT_DIAMETER + LABEL_GAP, y: labelY, text: lines.join("\n") },
   };
-  y += smallH + PAD;
-
-  return { width, height: Math.ceil(y), meta, title, authors, insights, status };
 };
 
 /* --------------------------- paper -> Excalidraw --------------------------- */
+
+const ARROW_GAP = 4;
+
+/** Relative points from the arrow origin to the target. Never degenerate (start === end). */
+const arrowPoints = (x1: number, y1: number, x2: number, y2: number): [number, number][] => {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return [[0, 0], [50, 50]];
+  return [[0, 0], [dx, dy]];
+};
 
 export const buildPaperElements = (
   papers: ResearchPaperNode[],
   edges: ResearchPaperEdge[]
 ): any[] => {
   const skeleton: any[] = [];
-  const sizes = new Map<string, { w: number; h: number; x: number; y: number }>();
+  const known = new Map<string, ResearchPaperNode>();
 
   papers.forEach((p) => {
     const L = layoutCard(p);
-    const grp = [groupIdOf(p.id)];
+    const grp = [groupIdOf(p.id)]; // same group id on point + title => they move as one entity
     const accent = p.color || "#4f46e5";
-    sizes.set(p.id, { w: L.width, h: L.height, x: p.x, y: p.y });
+    known.set(p.id, p);
 
     skeleton.push({
-      type: "rectangle",
+      type: "ellipse",
       id: cardElementId(p.id),
       x: p.x,
       y: p.y,
-      width: L.width,
-      height: L.height,
+      width: POINT_DIAMETER,
+      height: POINT_DIAMETER,
       strokeColor: accent,
-      backgroundColor: "#ffffff",
+      backgroundColor: accent,
       fillStyle: "solid",
       strokeWidth: 2,
       roughness: 0,
-      roundness: { type: 3 },
       groupIds: grp,
     });
 
-    const text = (part: string, y: number, t: string, fontSize: number, color: string) =>
-      skeleton.push({
-        type: "text",
-        id: `${p.id}${SEP}${part}`,
-        x: p.x + PAD,
-        y: p.y + y,
-        text: t,
-        fontSize,
-        fontFamily: 2, // Helvetica-style, easy to read at small sizes
-        textAlign: "left",
-        strokeColor: color,
-        groupIds: grp,
-      });
-
-    text("meta", L.meta.y, L.meta.text, FS_SMALL, accent);
-    text("title", L.title.y, L.title.text, FS_TITLE, "#0f172a");
-    text("authors", L.authors.y, L.authors.text, FS_SMALL, "#64748b");
-    if (L.insights) text("insights", L.insights.y, L.insights.text, FS_SMALL, "#334155");
-    text("status", L.status.y, L.status.text, FS_SMALL, L.status.color);
+    skeleton.push({
+      type: "text",
+      id: `${p.id}${SEP}title`,
+      x: p.x + L.label.x,
+      y: p.y + L.label.y,
+      text: L.label.text,
+      fontSize: FS_LABEL,
+      fontFamily: 2,
+      textAlign: "left",
+      strokeColor: "#0f172a",
+      groupIds: grp,
+    });
   });
 
-  // Arrows come after the cards so the cards they bind to already exist.
+  // Arrows come after the points so the elements they bind to already exist.
   edges.forEach((e) => {
-    const s = sizes.get(e.sourceNodeId);
-    const t = sizes.get(e.targetNodeId);
+    const s = known.get(e.sourceNodeId);
+    const t = known.get(e.targetNodeId);
     if (!s || !t) return;
 
+    const look = getArrowLook(e);
+    const startX = s.x + POINT_DIAMETER / 2;
+    const startY = s.y + POINT_DIAMETER / 2;
     skeleton.push({
       type: "arrow",
       id: edgeElementId(e.id),
-      x: s.x + s.w / 2,
-      y: s.y + s.h / 2,
+      x: startX,
+      y: startY,
+      // Always >= 2 DISTINCT relative points so there is a renderable path before binding routing runs.
+      points: arrowPoints(startX, startY, t.x + POINT_DIAMETER / 2, t.y + POINT_DIAMETER / 2),
+      // Bind to the ELLIPSE ids (`${nodeId}::card`), never the group id, so arrows can't detach.
       start: { id: cardElementId(e.sourceNodeId) },
       end: { id: cardElementId(e.targetNodeId) },
-      strokeColor: e.color || "#64748b",
-      strokeWidth: 2,
-      strokeStyle: e.style || "solid",
+      strokeColor: look.strokeColor,
+      strokeWidth: look.strokeWidth,
+      strokeStyle: look.strokeStyle,
+      roundness: look.roundness,
       roughness: 0,
       endArrowhead: "arrow",
       ...(e.label
-        ? { label: { text: e.label, fontSize: 14, strokeColor: e.color || "#64748b" } }
+        ? { label: { text: e.label, fontSize: 14, strokeColor: look.strokeColor } }
         : {}),
     });
   });
 
   // regenerateIds:false is REQUIRED - the ids above are how we map clicks back to papers.
-  return convertToExcalidrawElements(skeleton, { regenerateIds: false });
+  const elements: any[] = convertToExcalidrawElements(skeleton, { regenerateIds: false });
+  ensureBindings(elements, edges);
+
+  return elements;
+};
+
+/**
+ * Guarantees every edge arrow is explicitly bound to its two ellipses:
+ *   arrow.startBinding = { elementId: sourceEllipseId }, arrow.endBinding = { elementId: targetEllipseId }
+ * and each ellipse lists the arrow in boundElements. Missing bindings are what makes arrows
+ * lose their anchors (and vanish/detach) when nodes move. Existing, correct bindings are kept.
+ */
+const ensureBindings = (elements: any[], edges: ResearchPaperEdge[]): any[] => {
+  const byId = new Map<string, any>(elements.map((el) => [el.id, el]));
+
+  edges.forEach((e) => {
+    const arrow = byId.get(edgeElementId(e.id));
+    const src = byId.get(cardElementId(e.sourceNodeId));
+    const dst = byId.get(cardElementId(e.targetNodeId));
+    if (!arrow || !src || !dst) return;
+
+    // Safety net: an arrow with fewer than 2 distinct points has no path to draw.
+    const pts: number[][] = arrow.points ?? [];
+    const degenerate =
+      pts.length < 2 || pts.every((q) => Math.abs(q[0] - pts[0][0]) < 1 && Math.abs(q[1] - pts[0][1]) < 1);
+    if (degenerate) {
+      arrow.x = src.x + POINT_DIAMETER / 2;
+      arrow.y = src.y + POINT_DIAMETER / 2;
+      arrow.points = arrowPoints(arrow.x, arrow.y, dst.x + POINT_DIAMETER / 2, dst.y + POINT_DIAMETER / 2);
+      arrow.width = Math.abs(arrow.points[1][0]);
+      arrow.height = Math.abs(arrow.points[1][1]);
+    }
+
+    // Safety net: if the converter left a binding missing or pointing elsewhere, force it onto the
+    // ELLIPSE ids (never the group id). Correct bindings (with their computed focus) are kept.
+    if (arrow.startBinding?.elementId !== src.id) {
+      arrow.startBinding = { elementId: src.id, focus: 0, gap: ARROW_GAP };
+    }
+    if (arrow.endBinding?.elementId !== dst.id) {
+      arrow.endBinding = { elementId: dst.id, focus: 0, gap: ARROW_GAP };
+    }
+
+    [src, dst].forEach((node) => {
+      const bound: any[] = node.boundElements ? [...node.boundElements] : [];
+      if (!bound.some((b) => b.id === arrow.id)) bound.push({ id: arrow.id, type: "arrow" });
+      node.boundElements = bound;
+    });
+  });
+
+  return elements;
+};
+
+/* --------------------------- live edge tracking --------------------------- */
+
+const nextVersion = (el: any) => ({
+  version: (el.version ?? 0) + 1,
+  versionNonce: Math.floor(Math.random() * 2147483647),
+  updated: Date.now(),
+});
+
+/**
+ * Computes where an edge's arrow must sit for the CURRENT positions of its two node ellipses: a straight
+ * segment along the line between the two centres, starting/ending ARROW_GAP outside each circle.
+ * Pure geometry on the elements themselves, so it works no matter how Excalidraw's own binding code
+ * behaves in the installed version.
+ */
+const edgeGeometry = (src: any, dst: any) => {
+  const sx = src.x + src.width / 2;
+  const sy = src.y + src.height / 2;
+  const dx = dst.x + dst.width / 2 - sx;
+  const dy = dst.y + dst.height / 2 - sy;
+  const dist = Math.hypot(dx, dy);
+  const rs = src.width / 2 + ARROW_GAP;
+  const rd = dst.width / 2 + ARROW_GAP;
+
+  // Nodes (almost) touching/overlapping: no room for a gap, fall back to centre -> centre.
+  if (dist < 1 || dist <= rs + rd + 1) {
+    const [p1, p2] = arrowPoints(sx, sy, sx + dx, sy + dy);
+    return { x: sx, y: sy, points: [p1, p2], width: Math.abs(p2[0]), height: Math.abs(p2[1]) };
+  }
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const x = sx + ux * rs;
+  const y = sy + uy * rs;
+  const ex = dx - ux * (rs + rd);
+  const ey = dy - uy * (rs + rd);
+  return { x, y, points: [[0, 0], [ex, ey]], width: Math.abs(ex), height: Math.abs(ey) };
+};
+
+/**
+ * Re-routes the arrows of every edge touching a moved node (and re-centres their label text).
+ * Returns replacement elements keyed by id, or null when nothing needs to change. Elements that are
+ * already in the right place are skipped, so calling this on every onChange never loops.
+ */
+export const relayoutEdges = (
+  elements: readonly any[],
+  movedNodeIds: ReadonlySet<string>,
+  edges: ResearchPaperEdge[]
+): Map<string, any> | null => {
+  const byId = new Map<string, any>();
+  for (const el of elements) if (!el.isDeleted) byId.set(el.id, el);
+
+  const out = new Map<string, any>();
+  for (const e of edges) {
+    if (!movedNodeIds.has(e.sourceNodeId) && !movedNodeIds.has(e.targetNodeId)) continue;
+    const arrow = byId.get(edgeElementId(e.id));
+    const src = byId.get(cardElementId(e.sourceNodeId));
+    const dst = byId.get(cardElementId(e.targetNodeId));
+    if (!arrow || !src || !dst) continue;
+
+    const g = edgeGeometry(src, dst);
+    const end = arrow.points?.[arrow.points.length - 1] ?? [0, 0];
+    const same =
+      arrow.points?.length === 2 &&
+      Math.abs(arrow.x - g.x) < 0.25 &&
+      Math.abs(arrow.y - g.y) < 0.25 &&
+      Math.abs(end[0] - g.points[1][0]) < 0.25 &&
+      Math.abs(end[1] - g.points[1][1]) < 0.25;
+    if (same) continue;
+
+    out.set(arrow.id, { ...arrow, ...g, ...nextVersion(arrow) });
+
+    // The edge label is a bound text element: keep it centred on the arrow.
+    const mx = g.x + g.points[1][0] / 2;
+    const my = g.y + g.points[1][1] / 2;
+    for (const el of byId.values()) {
+      if (el.type === "text" && el.containerId === arrow.id) {
+        out.set(el.id, { ...el, x: mx - el.width / 2, y: my - el.height / 2, ...nextVersion(el) });
+      }
+    }
+  }
+  return out.size > 0 ? out : null;
+};
+
+/* ------------------------- deletion guard / drag sync ------------------------- */
+
+/**
+ * True when a graph element was deleted from the canvas (Delete key, eraser, undo...) or a stale one
+ * is left over. Nodes and edges may only be removed through GraphManagerSidebar, so the canvas then
+ * re-pushes the graph. Positions are NOT checked here: dragging is allowed and synced separately
+ * (see findMovedNodes).
+ */
+export const graphHasDrifted = (
+  elements: readonly any[],
+  nodes: ResearchPaperNode[],
+  edges: ResearchPaperEdge[]
+): boolean => {
+  const live = new Map<string, any>();
+  for (const el of elements) if (!el.isDeleted) live.set(el.id, el);
+
+  const nodeIds = new Set(nodes.map((n) => n.id));
+  const expectedEdges = edges.filter((e) => nodeIds.has(e.sourceNodeId) && nodeIds.has(e.targetNodeId));
+  const edgeIds = new Set(expectedEdges.map((e) => e.id));
+
+  for (const n of nodes) {
+    if (!live.has(cardElementId(n.id)) || !live.has(`${n.id}${SEP}title`)) return true;
+  }
+  for (const e of expectedEdges) {
+    if (!live.has(edgeElementId(e.id))) return true;
+  }
+  for (const el of live.values()) {
+    const parsed = parseOwnedId(el.id);
+    if (!parsed) continue;
+    if ((parsed.part === "card" || parsed.part === "title") && !nodeIds.has(parsed.baseId)) return true;
+    if (parsed.part === "edge" && !edgeIds.has(parsed.baseId)) return true;
+  }
+  return false;
+};
+
+/**
+ * Compares every live node ellipse with its PaperNode and returns the ones whose x / y differ.
+ * node.x / node.y are the ellipse's top-left, so the mapping is 1:1.
+ */
+export const findMovedNodes = (
+  elements: readonly any[],
+  nodes: ResearchPaperNode[]
+): Record<string, Point> => {
+  const moved: Record<string, Point> = {};
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  for (const el of elements) {
+    if (el.isDeleted || el.type !== "ellipse") continue;
+    const parsed = parseOwnedId(el.id);
+    if (!parsed || parsed.part !== "card") continue;
+    const node = byId.get(parsed.baseId);
+    if (!node) continue;
+    if (Math.abs(el.x - node.x) > 0.5 || Math.abs(el.y - node.y) > 0.5) {
+      moved[node.id] = { x: Math.round(el.x), y: Math.round(el.y) };
+    }
+  }
+  return moved;
 };
 
 /* ------------------------ legacy seed shapes -> Excalidraw ------------------------ */

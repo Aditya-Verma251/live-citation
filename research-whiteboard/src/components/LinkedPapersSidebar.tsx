@@ -263,16 +263,10 @@ export const LinkedPapersSidebar: React.FC<LinkedPapersSidebarProps> = ({
             <div
               key={paper.id}
               id={`linked-paper-card-${paper.id}`}
-              draggable={!isOnCanvas}
-              onDragStart={(e) => {
-                if (isOnCanvas) return;
-                e.dataTransfer.setData('application/json', JSON.stringify(paper));
-                e.dataTransfer.effectAllowed = 'copy';
-              }}
               className={`p-3 rounded-xl border transition-all duration-150 ${
                 isOnCanvas
                   ? 'bg-emerald-50/40 border-emerald-200/90 shadow-2xs'
-                  : 'bg-white hover:bg-indigo-50/40 border-slate-200 hover:border-indigo-300 shadow-xs hover:shadow-md cursor-grab active:cursor-grabbing group'
+                  : 'bg-white hover:bg-indigo-50/40 border-slate-200 hover:border-indigo-300 shadow-xs hover:shadow-md group'
               }`}
             >
               {/* Header with Title & Accent */}

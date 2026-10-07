@@ -5,10 +5,10 @@ import {
   TabItem,
   DashboardData,
   ResearchPaperNode,
-  ResearchPaperEdge,
   RelationType,
   ViewTransform,
   Point,
+  EdgeMetadata,
 } from './types';
 import { Sidebar, PRESET_RESEARCH_PAPERS } from './components/Sidebar';
 import { TopNav } from './components/TopNav';
@@ -19,20 +19,10 @@ import { AddPaperModal } from './components/AddPaperModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { TabBar } from './components/TabBar';
 import { getAllLinkedPapersForDashboard, isPaperOnDashboard } from './data/linkedPapersData';
+import { GraphManagerSidebar } from './components/GraphManagerSidebar';
 import { layoutCard } from './utils/excalidrawAdapter';
-
-const RELATION_LABELS: Record<RelationType, string> = {
-  extends: 'Extends',
-  improves: 'Improves',
-  cites: 'Cites',
-  contradicts: 'Contradicts',
-  benchmarks: 'Benchmarks',
-  'theoretical-foundation': 'Foundation',
-  custom: 'Related',
-};
-
-const edgeStyleFor = (r: RelationType): ResearchPaperEdge['style'] =>
-  r === 'improves' ? 'dashed' : r === 'contradicts' ? 'dotted' : 'solid';
+import * as graph from './utils/graphOps';
+import { RELATION_LABELS, inferRelationType, type NewNodeInput } from './utils/graphOps';
 
 const EMPTY_VIEW: ViewTransform = { x: 100, y: 100, zoom: 1 };
 
@@ -65,6 +55,7 @@ export default function App() {
   // UI Panels State
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isLinkedPapersOpen, setIsLinkedPapersOpen] = useState(true);
+  const [isGraphManagerOpen, setIsGraphManagerOpen] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [isAddPaperModalOpen, setIsAddPaperModalOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
@@ -101,6 +92,16 @@ export default function App() {
       return { ...prev, [tabId]: { ...d, ...fn(d), updatedAt: new Date().toISOString() } };
     });
   };
+
+  /**
+   * The ONLY way the graph changes: a pure graphOps function (graph -> graph) applied to the active board.
+   * The canvas re-renders from this state; it never writes back.
+   */
+  const applyGraph = (fn: (g: graph.GraphState) => graph.GraphState) =>
+    patchBoard((d) => {
+      const next = fn({ nodes: d.paperNodes, edges: d.paperEdges });
+      return { paperNodes: next.nodes, paperEdges: next.edges };
+    });
 
   // App-level keyboard shortcuts (Excalidraw handles its own tools / undo / redo)
   useEffect(() => {
@@ -220,26 +221,21 @@ export default function App() {
     }
   };
 
-  /* --------------------- events coming FROM the Excalidraw canvas --------------------- */
+  /* ---------- events from the canvas (read-only: selection / open only, never graph edits) ---------- */
 
+  // Single click only selects; the inspector opens on double-click (handleOpenNode).
   const handleCanvasSelectNode = (nodeId: string | null) => {
     setSelectedNodeId(nodeId);
-    setIsInspectorOpen(nodeId !== null);
+    if (nodeId === null) setIsInspectorOpen(false);
   };
 
-  const handleNodesMoved = (positions: Record<string, Point>) => {
-    patchBoard((d) => ({
-      paperNodes: d.paperNodes.map((n) => (positions[n.id] ? { ...n, ...positions[n.id] } : n)),
-    }));
+  const handleOpenNode = (nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    setIsInspectorOpen(true);
   };
 
   const removeNodes = (ids: string[]) => {
-    patchBoard((d) => ({
-      paperNodes: d.paperNodes.filter((n) => !ids.includes(n.id)),
-      paperEdges: d.paperEdges.filter(
-        (e) => !ids.includes(e.sourceNodeId) && !ids.includes(e.targetNodeId)
-      ),
-    }));
+    applyGraph((g) => graph.removeNodes(g, ids));
     if (selectedNodeId && ids.includes(selectedNodeId)) {
       setSelectedNodeId(null);
       setIsInspectorOpen(false);
@@ -247,8 +243,14 @@ export default function App() {
   };
 
   const handleEdgesDeleted = (ids: string[]) => {
-    patchBoard((d) => ({ paperEdges: d.paperEdges.filter((e) => !ids.includes(e.id)) }));
+    applyGraph((g) => graph.removeEdges(g, ids));
   };
+
+  // A node was dragged on the canvas: persist its new coordinates (positions only, structure untouched).
+  const handleNodesMoved = (positions: Record<string, Point>) =>
+    patchBoard((d) => ({
+      paperNodes: d.paperNodes.map((n) => (positions[n.id] ? { ...n, ...positions[n.id] } : n)),
+    }));
 
   const handleSceneChange = (sceneElements: any[]) => patchBoard(() => ({ sceneElements }));
   const handleViewChange = (viewTransform: ViewTransform) => patchBoard(() => ({ viewTransform }));
@@ -264,7 +266,7 @@ export default function App() {
     const spot = findFreeSpot(currentDashboard.paperNodes, Math.round(c.x - L.width / 2), Math.round(c.y - L.height / 2), L.width, L.height);
     const newNode = { ...draft, x: spot.x, y: spot.y };
 
-    patchBoard((d) => ({ paperNodes: [...d.paperNodes, newNode] }));
+    applyGraph((g) => graph.addNode(g, newNode));
     setSelectedNodeId(newNode.id);
     setIsInspectorOpen(true);
   };
@@ -298,7 +300,7 @@ export default function App() {
     const spot = findFreeSpot(currentDashboard.paperNodes, Math.round(c.x - L.width / 2), Math.round(c.y - L.height / 2), L.width, L.height);
     const newNode = { ...draft, ...spot };
 
-    patchBoard((d) => ({ paperNodes: [...d.paperNodes, newNode] }));
+    applyGraph((g) => graph.addNode(g, newNode));
     setSelectedNodeId(newNode.id);
   };
 
@@ -325,17 +327,14 @@ export default function App() {
     const L = layoutCard(draft);
     const spot = findFreeSpot(currentDashboard.paperNodes, source.x + layoutCard(source).width + 80, source.y, L.width, L.height);
     const newNode = { ...draft, ...spot };
-    const newEdge: ResearchPaperEdge = {
-      id: `edge-${Date.now()}`,
-      sourceNodeId: source.id,
-      targetNodeId: newNode.id,
-      relationType: 'extends',
-      label: RELATION_LABELS.extends,
-      style: 'solid',
-      color: source.color,
-    };
-
-    patchBoard((d) => ({ paperNodes: [...d.paperNodes, newNode], paperEdges: [...d.paperEdges, newEdge] }));
+    applyGraph((g) =>
+      graph.addEdge(graph.addNode(g, newNode), {
+        sourceNodeId: source.id,
+        targetNodeId: newNode.id,
+        relationType: 'extends',
+        label: RELATION_LABELS.extends,
+      })
+    );
     setSelectedNodeId(newNode.id);
   };
 
@@ -380,29 +379,18 @@ export default function App() {
       (selectedNodeId ? nodes.find((n) => n.id === selectedNodeId) : undefined);
 
     const rel: RelationType = parent && paper.linkedToNodeId === parent.id ? paper.relationType || 'cites' : 'extends';
-    const newEdge: ResearchPaperEdge | null = parent
-      ? {
-          id: `edge-${Date.now()}`,
-          sourceNodeId: parent.id,
-          targetNodeId: newNode.id,
-          relationType: rel,
-          label: RELATION_LABELS[rel] || 'Related',
-          style: edgeStyleFor(rel),
-          color: parent.color,
-        }
-      : null;
-
-    patchBoard((d) => ({
-      paperNodes: [...d.paperNodes, newNode],
-      paperEdges: newEdge ? [...d.paperEdges, newEdge] : d.paperEdges,
-    }));
+    applyGraph((g) => {
+      const withNode = graph.addNode(g, newNode);
+      return parent
+        ? graph.addEdge(withNode, {
+            sourceNodeId: parent.id,
+            targetNodeId: newNode.id,
+            relationType: rel,
+            label: RELATION_LABELS[rel] || 'Related',
+          })
+        : withNode;
+    });
     setSelectedNodeId(newNode.id);
-  };
-
-  // Dropped with the mouse: (pos) is where the cursor is -> center the card there.
-  const handleDropLinkedPaper = (paper: any, pos: Point) => {
-    const L = layoutCard({ ...paper, width: 320 } as ResearchPaperNode);
-    addLinkedPaper(paper, pos.x - L.width / 2, pos.y - L.height / 2);
   };
 
   // "Add as Node" button: place it to the right of its parent, on a free spot.
@@ -425,21 +413,33 @@ export default function App() {
 
   /* ------------------------------ inspector actions ------------------------------ */
 
-  const handleCreateEdge = (sourceId: string, targetId: string, relationType: RelationType) => {
-    const src = currentDashboard.paperNodes.find((n) => n.id === sourceId);
-    const newEdge: ResearchPaperEdge = {
-      id: `edge-${Date.now()}`,
-      sourceNodeId: sourceId,
-      targetNodeId: targetId,
-      relationType,
-      label: RELATION_LABELS[relationType] || 'Related',
-      style: edgeStyleFor(relationType),
-      color: src?.color || '#4f46e5',
-    };
-    patchBoard((d) => ({ paperEdges: [...d.paperEdges, newEdge] }));
-  };
+  /** Every edge (inspector, "connected paper", graph sidebar) is created through graphOps. */
+  const addEdge = (meta: EdgeMetadata) => applyGraph((g) => graph.addEdge(g, meta));
+
+  const handleCreateEdge = (sourceId: string, targetId: string, relationType: RelationType) =>
+    addEdge({ sourceNodeId: sourceId, targetNodeId: targetId, relationType });
 
   const handleDeleteEdge = (edgeId: string) => handleEdgesDeleted([edgeId]);
+
+  /* ------------------------------ graph manager sidebar ------------------------------ */
+
+  const handleGraphAddNode = (input: NewNodeInput) => {
+    const draft = graph.createNode(input, { x: 0, y: 0 });
+    let pos: Point;
+    if (input.x !== undefined && input.y !== undefined) {
+      pos = { x: input.x, y: input.y };
+    } else {
+      const c = viewportCenter();
+      const L = layoutCard(draft);
+      pos = findFreeSpot(currentDashboard.paperNodes, Math.round(c.x - L.width / 2), Math.round(c.y - L.height / 2), L.width, L.height);
+    }
+    const node = { ...draft, x: Math.round(pos.x), y: Math.round(pos.y) };
+    applyGraph((g) => graph.addNode(g, node));
+    setSelectedNodeId(node.id);
+  };
+
+  const handleGraphAddEdge = (sourceNodeId: string, targetNodeId: string, label: string) =>
+    addEdge({ sourceNodeId, targetNodeId, relationType: inferRelationType(label), label });
 
   /* ---------------------------------- export / import ---------------------------------- */
 
@@ -535,6 +535,8 @@ export default function App() {
           onExportJSON={handleExportJSON}
           onImportJSON={handleImportJSON}
           onOpenShortcuts={() => setIsShortcutsOpen(true)}
+          isGraphManagerOpen={isGraphManagerOpen}
+          onToggleGraphManager={() => setIsGraphManagerOpen(!isGraphManagerOpen)}
         />
 
         <TabBar
@@ -557,12 +559,10 @@ export default function App() {
               sceneElements={currentDashboard.sceneElements}
               viewTransform={currentDashboard.viewTransform}
               onSelectNode={handleCanvasSelectNode}
+              onOpenNode={handleOpenNode}
               onNodesMoved={handleNodesMoved}
-              onNodesDeleted={removeNodes}
-              onEdgesDeleted={handleEdgesDeleted}
               onSceneChange={handleSceneChange}
               onViewChange={handleViewChange}
-              onDropPaper={handleDropLinkedPaper}
             />
           </main>
 
@@ -576,6 +576,20 @@ export default function App() {
             onLocateNode={handleLocateNode}
             onAddLinkedPaperAsNode={handleAddLinkedPaperAsNode}
           />
+
+          {/* The only place the graph is edited; the canvas just displays it */}
+          <GraphManagerSidebar
+            isOpen={isGraphManagerOpen}
+            onClose={() => setIsGraphManagerOpen(false)}
+            nodes={currentDashboard.paperNodes}
+            edges={currentDashboard.paperEdges}
+            selectedNodeId={selectedNodeId}
+            onLocateNode={handleLocateNode}
+            onAddNode={handleGraphAddNode}
+            onDeleteNode={(id) => removeNodes([id])}
+            onAddEdge={handleGraphAddEdge}
+            onDeleteEdge={handleDeleteEdge}
+          />
         </div>
       </div>
 
@@ -585,11 +599,7 @@ export default function App() {
           node={selectedNode}
           allNodes={currentDashboard.paperNodes}
           edges={currentDashboard.paperEdges}
-          onUpdateNode={(updated) =>
-            patchBoard((d) => ({
-              paperNodes: d.paperNodes.map((n) => (n.id === updated.id ? updated : n)),
-            }))
-          }
+          onUpdateNode={(updated) => applyGraph((g) => graph.updateNode(g, updated))}
           onDeleteNode={(id) => removeNodes([id])}
           onCreateEdge={handleCreateEdge}
           onDeleteEdge={handleDeleteEdge}
