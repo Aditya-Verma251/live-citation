@@ -10,7 +10,6 @@ This project attempts to create an interactive, collaborative research workspace
 # Problem Statement
 
 Researchers, graduate students, and engineers are overwhelmed by the sheer volume of static research papers and preprints. Key challenges include: 
-
 - **Information Overload:** Drowning in hundreds of PDFs without clear visibility into research gaps, foundational papers, or how algorithms have evolved over time.
 - **Replicability Friction:** Struggling to extract step-by-step experimental methodologies, required materials, and practical bug fixes from dense academic writing.
 - **Static Workflows:** Current research tools lack real-time collaboration, whiteboarding capabilities, and community-driven insights to verify if published experiments actually work in practice.
@@ -19,14 +18,6 @@ Researchers, graduate students, and engineers are overwhelmed by the sheer volum
 - **Automated Methodology Extraction:** Mine published papers and preprints to isolate specific experiments, required materials, and results, exporting them into structured formats.
 - **Unrestricted Customization:** Provide a personal whiteboard experience where users can edit nodes, sever links, and add sticky notes.
 - **Collaborative Workspace:** Enable user-generated posts and visual cues to create a surfable, community-driven feed of insights, bug fixes, and implementation notes.
-
-
-# Technologies Used
-
-- **Frontend:** React.js with Excalidraw for interactive graph visualization for the dynamic whiteboard canvas.
-(everything below is planned for the future)
-- **Backend:** Python (FastAPI) to handle real-time collaboration, API endpoints, and data processing.
-- **Natural Language Processing (NLP) / Extraction:** Python-based NLP pipelines (using LLMs) to mine preprints and papers for methodologies and citations.
 
 # Improvements from LAB:7
 
