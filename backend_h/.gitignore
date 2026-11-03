@@ -1,0 +1,26 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Python environments and generated files
+.venv/
+venv/
+**/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Generated research artifacts and downloaded PDFs
+output/
+**/output/
+storage/pdfs/
+**/storage/pdfs/
+
+# Frontend dependencies/build output
+node_modules/
+dist/

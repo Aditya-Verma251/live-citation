@@ -1,0 +1,133 @@
+{
+  "created_at": "2026-11-02T14:54:51.667096+00:00",
+  "provider": "OpenAlex",
+  "input": "RISC-V architecture",
+  "input_mode": "keyword",
+  "seed_paper_ids": [
+    "W4319988952"
+  ],
+  "paper_count": 3,
+  "edge_count": 2,
+  "papers": [
+    {
+      "id": "W4393222348",
+      "openalex_id": "https://openalex.org/W4393222348",
+      "doi": "10.1201/9780429355080-12",
+      "title": "RISC-V Open Source Instruction Set and Architecture",
+      "year": 2024,
+      "publication_date": "2024-03-27",
+      "type": "book-chapter",
+      "authors": [
+        "Chao Wang"
+      ],
+      "venue": "Chapman & Hall/CRC eBooks",
+      "landing_page_url": "http://dx.doi.org/10.1201/9780429355080-12",
+      "pdf_url": null,
+      "is_open_access": false,
+      "cited_by_count": 0,
+      "abstract": "In this section, we first provide an introduction to the RISC-V architecture and then describe in detail the characteristics of the RISC-V architecture compared to traditional instruction set architectures. Finally, we investigate and summarize the current research status of RISC-V in industry and academia.",
+      "referenced_work_ids": [],
+      "related_work_ids": [
+        "W4200225344",
+        "W220440441",
+        "W7161366487",
+        "W4367458876",
+        "W4409307671",
+        "W7137518187",
+        "W3027553599",
+        "W7071094514",
+        "W7171418151",
+        "W2562276894"
+      ],
+      "discovered_via": [
+        "related_work"
+      ]
+    },
+    {
+      "id": "W4319988952",
+      "openalex_id": "https://openalex.org/W4319988952",
+      "doi": "10.1007/978-3-031-18023-1_4",
+      "title": "The RISC-V Architecture",
+      "year": 2023,
+      "publication_date": "2023-01-01",
+      "type": "book-chapter",
+      "authors": [
+        "Bernard Goossens"
+      ],
+      "venue": "Undergraduate topics in computer science",
+      "landing_page_url": "https://doi.org/10.1007/978-3-031-18023-1_4",
+      "pdf_url": null,
+      "is_open_access": false,
+      "cited_by_count": 0,
+      "abstract": null,
+      "referenced_work_ids": [],
+      "related_work_ids": [
+        "W4393222348",
+        "W4200225344",
+        "W4319988972",
+        "W7024457347",
+        "W220440441",
+        "W2415551696",
+        "W4413879088",
+        "W7119482780",
+        "W7033348763",
+        "W3027300711"
+      ],
+      "discovered_via": [
+        "seed_search"
+      ]
+    },
+    {
+      "id": "W4200225344",
+      "openalex_id": "https://openalex.org/W4200225344",
+      "doi": "10.1016/b978-0-12-820064-3.00006-4",
+      "title": "Architecture",
+      "year": 2021,
+      "publication_date": "2021-07-16",
+      "type": "book-chapter",
+      "authors": [
+        "Sarah L. Harris",
+        "David Money Harris"
+      ],
+      "venue": "Elsevier eBooks",
+      "landing_page_url": "https://doi.org/10.1016/b978-0-12-820064-3.00006-4",
+      "pdf_url": null,
+      "is_open_access": false,
+      "cited_by_count": 6,
+      "abstract": null,
+      "referenced_work_ids": [],
+      "related_work_ids": [
+        "W220440441",
+        "W4392934888",
+        "W2562276894",
+        "W4393222348",
+        "W4409307671",
+        "W4376881175",
+        "W7119482780",
+        "W4319988952",
+        "W3027553599",
+        "W2415551696"
+      ],
+      "discovered_via": [
+        "related_work"
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "source": "W4319988952",
+      "target": "W4200225344",
+      "type": "related_to"
+    },
+    {
+      "source": "W4319988952",
+      "target": "W4393222348",
+      "type": "related_to"
+    }
+  ],
+  "notes": [
+    "Discovery is one-hop and intentionally capped by seed_limit, per_neighborhood, and max_papers.",
+    "Citation edges come from OpenAlex bibliographic links; related_to edges are semantic-neighbour links.",
+    "A missing abstract or PDF URL means OpenAlex did not provide it in this record; it does not mean the paper has no abstract or full text."
+  ]
+}

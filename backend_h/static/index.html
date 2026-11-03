@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Research Atlas · Paper Explorer</title>
+  <style>
+    :root{--bg:#0b1020;--panel:#121a2b;--panel2:#172238;--line:#27354d;--text:#edf3ff;--muted:#9aabc4;--blue:#6ea8fe;--cyan:#69d5df;--green:#65d6a6;--gold:#f1c66d;--red:#ed8d9c;--purple:#b5a0ff;--shadow:0 14px 40px rgba(0,0,0,.22)}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 15% -10%,#1a3154 0,transparent 32%),var(--bg);color:var(--text);font:14px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+    button,select,input{font:inherit;color:inherit}button,select,input{background:#0c1526;border:1px solid var(--line);border-radius:9px;padding:9px 11px}button{cursor:pointer}button:hover{border-color:var(--blue)}
+    .shell{max-width:1600px;margin:auto;padding:22px 24px 36px}.top{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:22px}.brand{display:flex;align-items:center;gap:12px}.mark{width:40px;height:40px;border-radius:13px;background:linear-gradient(135deg,#5ea3ff,#7ce0d3);display:grid;place-items:center;color:#071322;font-weight:900;font-size:19px}.brand h1{font-size:17px;line-height:1.2;margin:0;letter-spacing:.01em}.brand p{margin:3px 0 0;color:var(--muted);font-size:12px}.controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.controls select{min-width:220px;max-width:340px}.eyebrow{font-size:11px;color:var(--cyan);font-weight:750;letter-spacing:.13em;text-transform:uppercase}.hero{display:flex;justify-content:space-between;align-items:flex-end;margin:20px 0 16px;gap:20px}.hero h2{font-size:clamp(22px,3vw,32px);margin:5px 0 4px;letter-spacing:-.03em}.hero p{margin:0;color:var(--muted);max-width:760px}.stats{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:11px;margin:18px 0}.stat{background:linear-gradient(180deg,rgba(23,34,56,.92),rgba(18,26,43,.92));border:1px solid var(--line);border-radius:13px;padding:13px 15px;box-shadow:var(--shadow)}.stat .label{color:var(--muted);font-size:12px}.stat .value{font-size:25px;font-weight:760;margin-top:4px;letter-spacing:-.03em}.layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(330px,.8fr);gap:14px;align-items:start}.panel{background:rgba(18,26,43,.94);border:1px solid var(--line);border-radius:15px;box-shadow:var(--shadow);overflow:hidden}.panel-head{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}.panel-head h3{margin:0;font-size:14px}.panel-head small{color:var(--muted)}.graph-toolbar{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.graph-toolbar input{width:180px}.graph-wrap{position:relative;min-height:510px;background:radial-gradient(circle at 50% 48%,rgba(36,63,103,.28),transparent 56%);overflow:hidden}.graph-wrap svg{width:100%;height:510px;display:block;touch-action:pan-y}.empty{padding:42px 20px;text-align:center;color:var(--muted)}.legend{display:flex;gap:13px;flex-wrap:wrap;padding:11px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:11px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}.detail{padding:16px}.detail h3{font-size:17px;line-height:1.35;margin:4px 0 7px}.meta{color:var(--muted);font-size:12px;margin-bottom:12px;overflow-wrap:anywhere}.pill{display:inline-flex;border:1px solid var(--line);padding:3px 8px;border-radius:99px;color:var(--muted);font-size:11px;margin:0 5px 5px 0}.section{border-top:1px solid var(--line);padding:13px 0}.section h4{margin:0 0 8px;font-size:12px;color:#c5d5ed;text-transform:uppercase;letter-spacing:.08em}.section p{margin:0;color:#d8e2f2;font-size:13px;white-space:pre-wrap}.items{display:grid;gap:8px}.item{background:#0d1729;border:1px solid #23334b;border-radius:9px;padding:9px 10px;font-size:12px;color:#d8e2f2}.item small{display:block;color:var(--muted);margin-top:5px}.muted{color:var(--muted)}.notice{margin:12px 0;padding:10px 12px;border-radius:10px;border:1px solid rgba(241,198,109,.28);background:rgba(241,198,109,.08);color:#e7d3a6;font-size:12px}.bottom{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.list-panel{padding:14px 16px}.list-panel h3{font-size:14px;margin:0 0 12px}.node{cursor:pointer}.node circle,.node rect{stroke-width:2.5;transition:stroke-width .12s,filter .12s}.node:hover circle,.node.selected circle,.node:hover rect,.node.selected rect{stroke:#fff;stroke-width:4;filter:drop-shadow(0 0 6px rgba(255,255,255,.3))}.node text{fill:#eaf2ff;font-size:11px;pointer-events:none;text-anchor:middle}.edge{stroke-width:1.45;opacity:.58;fill:none}.edge.cites{stroke:#6884a8}.edge.related_to{stroke:#8798af;stroke-dasharray:4 4}.edge.research{stroke:var(--cyan);stroke-width:2}.edge.gap{stroke:var(--gold);stroke-dasharray:3 4}.edge-label{font-size:9px;fill:#9eb1ce;pointer-events:none}.placeholder{color:var(--muted);padding:18px}.footer{color:#71839f;font-size:11px;margin-top:18px;text-align:center}.status{font-size:11px;color:var(--muted)}a{color:#9bc5ff}
+    @media(max-width:1000px){.layout{grid-template-columns:1fr}.bottom{grid-template-columns:1fr}.graph-wrap,.graph-wrap svg{min-height:430px;height:430px}.stats{grid-template-columns:repeat(2,1fr)}}@media(max-width:650px){.shell{padding:14px}.top,.hero{align-items:flex-start;flex-direction:column}.controls{justify-content:flex-start;width:100%}.controls select{width:100%;max-width:none}.hero{margin-top:14px}.stats{gap:8px}.stat{padding:10px}.stat .value{font-size:21px}.panel-head{align-items:flex-start;flex-direction:column}.graph-toolbar input{width:150px}}
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand"><div class="mark">R</div><div><h1>Research Atlas</h1><p>Literature discovery · evidence · relationships</p></div></div>
+    <div class="controls"><select id="projectSelect" aria-label="Select research project"><option value="">Loading projects…</option></select><button id="refreshBtn">Refresh</button></div>
+  </header>
+  <section class="hero"><div><div class="eyebrow">Research workspace</div><h2 id="queryTitle">Select a research project</h2><p id="projectSub">Explore discovered papers, citation links, extracted research gaps, and candidate relationships.</p></div><div class="status" id="serverStatus">Connecting to local backend…</div></section>
+  <section class="stats">
+    <div class="stat"><div class="label">Discovered papers</div><div class="value" id="statPapers">—</div></div>
+    <div class="stat"><div class="label">Successfully analyzed</div><div class="value" id="statAnalyzed">—</div></div>
+    <div class="stat"><div class="label">Graph relationships</div><div class="value" id="statEdges">—</div></div>
+    <div class="stat"><div class="label">Explicit gap records</div><div class="value" id="statGaps">—</div></div>
+  </section>
+  <main class="layout">
+    <section class="panel">
+      <div class="panel-head"><div><h3>Research knowledge graph</h3><small id="graphSub">Bibliographic links and extracted research relationships</small></div><div class="graph-toolbar"><input id="searchInput" placeholder="Find a paper or gap…" aria-label="Search graph"><select id="edgeFilter" aria-label="Filter relationship"><option value="all">All connections</option><option value="bibliographic">Citations</option><option value="related">Related-work links</option><option value="research">Research relationships</option><option value="gap">Research gaps</option></select></div></div>
+      <div class="graph-wrap" id="graphWrap"><svg id="graphSvg" viewBox="0 0 900 510" role="img" aria-label="Research knowledge graph"></svg></div>
+      <div class="legend"><span><i class="dot" style="background:var(--green)"></i>Analyzed paper</span><span><i class="dot" style="background:var(--blue)"></i>Discovered paper</span><span><i class="dot" style="background:var(--gold)"></i>Research gap</span><span>— Citation</span><span>┄ Related / candidate link</span></div>
+    </section>
+    <aside class="panel"><div class="panel-head"><div><h3>Selected item</h3><small>Click a node in the graph to inspect it</small></div><span id="selectedType" class="pill">Nothing selected</span></div><div class="detail" id="detailPanel"><div class="empty">Choose a project, then select a paper or research-gap node.</div></div></aside>
+  </main>
+  <section class="bottom">
+    <div class="panel list-panel"><h3>Candidate research relationships</h3><div id="relationshipList" class="items"><div class="placeholder">No project selected.</div></div></div>
+    <div class="panel list-panel"><h3>Explicit research gaps</h3><div id="gapList" class="items"><div class="placeholder">No project selected.</div></div></div>
+  </section>
+  <div class="footer">Local read-only dashboard · Inferred relationships are heuristic candidates and require human review.</div>
+</div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const state = {project:null, graph:null, selected:null, analyses:{}, nodes:[], edges:[]};
+  const NS = 'http://www.w3.org/2000/svg';
+  const esc = (value) => String(value ?? '');
+  const short = (value, n=25) => { const s=esc(value); return s.length>n ? s.slice(0,n-1)+'…' : s; };
+  const svgEl = (tag, attrs={}) => { const e=document.createElementNS(NS,tag); Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v)); return e; };
+  const addText = (parent, x, y, text, cls='') => { const t=svgEl('text',{x,y,class:cls}); t.textContent=text; parent.appendChild(t); return t; };
+  const escHtml = (s) => esc(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  async function getJSON(url){ const r=await fetch(url); if(!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }
+  async function loadProjects(){
+    try{
+      const data=await getJSON('/api/projects'); $('serverStatus').textContent=`Local projects · ${data.projects.length} found`;
+      const select=$('projectSelect'); const previous=select.value; select.innerHTML='';
+      if(!data.projects.length){select.add(new Option('No research projects found','')); clearProject(); return;}
+      data.projects.forEach(p=>select.add(new Option(`${p.query} · ${p.id}`,p.id)));
+      select.value=data.projects.some(p=>p.id===previous)?previous:data.projects[0].id;
+      await loadProject(select.value);
+    }catch(e){$('serverStatus').textContent='Backend not reachable'; $('queryTitle').textContent='Start the local dashboard server'; $('projectSub').textContent='Run: python3 web.py --output-root output'; $('detailPanel').textContent=e.message;}
+  }
+  function clearProject(){state.project=null;state.graph=null;state.nodes=[];state.edges=[];$('queryTitle').textContent='No research projects found';$('graphSvg').innerHTML='';$('detailPanel').textContent='Run the research pipeline first.';}
+  async function loadProject(id){
+    if(!id){clearProject();return;}
+    try{
+      const data=await getJSON('/api/project/'+encodeURIComponent(id)); state.project=data;state.graph=data.graph||null;state.analyses=data.analyses||{};
+      const discovery=data.discovery||{}, summary=data.research_summary||{}, analysis=data.analysis_summary||{};
+      state.nodes=(data.graph&&data.graph.nodes)||[];state.edges=(data.graph&&data.graph.edges)||[];
+      $('queryTitle').textContent=summary.query||discovery.input||id;
+      $('projectSub').textContent=`${id} · ${(discovery.papers||[]).length} papers discovered · ${analysis.analyzed_count||0} analyzed`;
+      $('statPapers').textContent=(discovery.papers||[]).length;
+      $('statAnalyzed').textContent=analysis.analyzed_count??0;
+      $('statEdges').textContent=state.edges.length;
+      $('statGaps').textContent=(data.relationships&&data.relationships.gaps||[]).length;
+      $('graphSub').textContent=state.graph ? `${state.nodes.length} nodes · ${state.edges.length} edges` : 'This project predates the relationship graph. Run the updated pipeline to build it.';
+      renderGraph();renderRelationshipList(data.relationships||{});renderGapList(data.relationships||{});
+      if(!state.graph){$('graphSvg').innerHTML='';$('graphWrap').insertAdjacentHTML('beforeend','<div class="empty">No graph has been generated for this project yet. Re-run this project with the updated backend.</div>');}
+      const first=state.nodes.find(n=>n.type==='paper')||state.nodes[0];selectNode(first&&first.id);
+    }catch(e){$('serverStatus').textContent='Could not load project';$('detailPanel').textContent=e.message;}
+  }
+  function getPositions(nodes){
+    const papers=nodes.filter(n=>n.type==='paper'), gaps=nodes.filter(n=>n.type!=='paper');
+    const pos=new Map(); const cx=450,cy=250;
+    const radius=Math.min(205,90+papers.length*5);
+    papers.forEach((n,i)=>{const angle=(Math.PI*2*i/Math.max(1,papers.length))-Math.PI/2;pos.set(n.id,{x:cx+Math.cos(angle)*radius,y:cy+Math.sin(angle)*radius*.82});});
+    gaps.forEach((n,i)=>{const angle=(Math.PI*2*i/Math.max(1,gaps.length))-Math.PI/2;pos.set(n.id,{x:cx+Math.cos(angle)*230,y:cy+Math.sin(angle)*205});});
+    return pos;
+  }
+  function edgeGroup(edge){if(edge.type==='identifies_gap')return 'gap';if(edge.kind==='bibliographic')return 'bibliographic';if(edge.kind==='discovery_similarity')return 'related';return 'research';}
+  function renderGraph(){
+    const svg=$('graphSvg');svg.innerHTML='';
+    const nodes=state.nodes; if(!nodes.length){addText(svg,450,255,'No graph data for this project','edge-label');return;}
+    const query=$('searchInput').value.toLowerCase().trim(), filter=$('edgeFilter').value;
+    const visibleNodes=nodes.filter(n=>!query||[n.label,n.title,n.text,n.paper_id].join(' ').toLowerCase().includes(query));
+    const visibleIds=new Set(visibleNodes.map(n=>n.id));
+    const positions=getPositions(nodes);
+    const edges=state.edges.filter(e=>visibleIds.has(e.source)&&visibleIds.has(e.target)&&(filter==='all'||edgeGroup(e)===filter));
+    edges.forEach(edge=>{const a=positions.get(edge.source),b=positions.get(edge.target);if(!a||!b)return;const line=svgEl('line',{x1:a.x,y1:a.y,x2:b.x,y2:b.y,class:`edge ${edgeGroup(edge)==='research'?'research':edgeGroup(edge)==='gap'?'gap':edge.type}`});svg.appendChild(line);});
+    visibleNodes.forEach(node=>{
+      const p=positions.get(node.id);if(!p)return;const group=svgEl('g',{class:`node${state.selected===node.id?' selected':''}`,'data-id':node.id});
+      const color=node.type==='research_gap'?'#f1c66d':node.status==='analyzed'?'#65d6a6':'#6ea8fe';
+      if(node.type==='research_gap'){group.appendChild(svgEl('rect',{x:p.x-10,y:p.y-10,width:20,height:20,rx:4,fill:'#6c5420',stroke:color}));}
+      else{group.appendChild(svgEl('circle',{cx:p.x,cy:p.y,r:node.status==='analyzed'?16:13,fill:node.status==='analyzed'?'#174e49':'#173b67',stroke:color}));}
+      const label=short(node.label||node.title||node.paper_id||node.id,node.type==='research_gap'?19:23);
+      addText(group,p.x,p.y+(node.type==='research_gap'?27:31),label);
+      group.addEventListener('click',()=>selectNode(node.id));svg.appendChild(group);
+    });
+    if(!visibleNodes.length)addText(svg,450,255,'No matching papers or gaps','edge-label');
+  }
+  function selectNode(id){
+    state.selected=id||null;renderGraph();const node=state.nodes.find(n=>n.id===id);const panel=$('detailPanel');
+    if(!node){panel.innerHTML='<div class="empty">Select a node to inspect it.</div>';$('selectedType').textContent='Nothing selected';return;}
+    if(node.type==='paper'){
+      const result=state.analyses[node.paper_id]||{};const paper=result.paper||node;const a=result.analysis||{};
+      $('selectedType').textContent='Research paper';
+      let html=`<div class="eyebrow">${escHtml(node.status||'discovered')} · ${escHtml(node.year||'Year unknown')}</div><h3>${escHtml(node.title||node.label)}</h3><div class="meta">${escHtml((paper.authors||node.authors||[]).slice(0,6).join(', '))}</div>`;
+      if(node.doi)html+=`<span class="pill">DOI: ${escHtml(node.doi)}</span>`;
+      if(node.venue)html+=`<span class="pill">${escHtml(node.venue)}</span>`;
+      if(node.is_open_access===true)html+='<span class="pill">Open access flagged</span>';
+      if(node.status==='analyzed')html+='<span class="pill">PDF analyzed</span>';
+      if(node.abstract)html+=`<div class="section"><h4>Abstract</h4><p>${escHtml(node.abstract)}</p></div>`;
+      const fields=[['Research problem','research_problem'],['Objective','research_objective'],['Methodology','methodology'],['Key findings','key_findings'],['Conclusion','conclusion'],['Limitations','limitations'],['Future work','future_work'],['Research gaps','research_gaps']];
+      fields.forEach(([label,key])=>{const value=a[key];if(value&&((Array.isArray(value)&&value.length)||typeof value==='string'&&value.trim()))html+=`<div class="section"><h4>${label}</h4><p>${escHtml(Array.isArray(value)?value.join('\n\n'):value)}</p></div>`;});
+      if(a.evidence&&a.evidence.length){html+='<div class="section"><h4>Evidence snippets</h4><div class="items">';a.evidence.slice(0,6).forEach(e=>{html+=`<div class="item">“${escHtml(e.quote)}”<small>${escHtml(e.field)} · ${escHtml(e.section||'section')}${e.page_start?' · page '+escHtml(e.page_start):''}</small></div>`;});html+='</div></div>';}
+      if(node.pdf_url)html+=`<div class="section"><a href="${escHtml(node.pdf_url)}" target="_blank" rel="noopener">Open known PDF source ↗</a></div>`;
+      panel.innerHTML=html;
+    }else{
+      $('selectedType').textContent='Research gap';
+      const sources=(node.source_paper_ids||[]).map(id=>state.nodes.find(n=>n.paper_id===id)).filter(Boolean);
+      let html=`<div class="eyebrow">Explicit extracted gap</div><h3>${escHtml(node.text||node.label)}</h3><div class="section"><h4>Identified by</h4><div class="items">${sources.map(p=>`<div class="item">${escHtml(p.title||p.label)}<small>${escHtml(p.paper_id)}</small></div>`).join('')||'<span class="muted">Source paper not available</span>'}</div></div>`;
+      if(node.evidence&&node.evidence.quote)html+=`<div class="section"><h4>Supporting text</h4><p>“${escHtml(node.evidence.quote)}”</p><small class="muted">${escHtml(node.evidence.section||'')}</small></div>`;
+      panel.innerHTML=html;
+    }
+  }
+  function renderRelationshipList(data){
+    const target=$('relationshipList'),edges=data.inferred_edges||[];target.innerHTML='';
+    if(!edges.length){target.innerHTML='<div class="placeholder">No cross-paper content relationships detected yet. At least two papers must be successfully analyzed to compare them.</div>';return;}
+    edges.slice(0,20).forEach(e=>{const a=state.nodes.find(n=>n.paper_id===e.source),b=state.nodes.find(n=>n.paper_id===e.target);const div=document.createElement('div');div.className='item';div.innerHTML=`<strong>${escHtml((e.type||'relationship').replaceAll('_',' '))}</strong><br>${escHtml(a?.title||e.source)} → ${escHtml(b?.title||e.target)}<small>Heuristic score ${Math.round((e.score||0)*100)}% · Requires human review · ${escHtml(e.explanation||'')}</small>`;target.appendChild(div);});
+  }
+  function renderGapList(data){
+    const target=$('gapList'),gaps=data.gaps||[];target.innerHTML='';
+    if(!gaps.length){target.innerHTML='<div class="placeholder">No explicit limitations or future-work statements were extracted from the analyzed PDFs.</div>';return;}
+    gaps.slice(0,20).forEach(g=>{const paper=state.nodes.find(n=>n.paper_id===g.paper_id);const div=document.createElement('div');div.className='item';div.textContent=g.text;const small=document.createElement('small');small.textContent=`${paper?.title||g.paper_id||'Source paper'} · ${g.source||'extracted'}`;div.appendChild(small);target.appendChild(div);});
+  }
+  $('projectSelect').addEventListener('change',e=>loadProject(e.target.value));$('refreshBtn').addEventListener('click',loadProjects);$('searchInput').addEventListener('input',renderGraph);$('edgeFilter').addEventListener('change',renderGraph);
+  loadProjects();
+})();
+</script>
+</body>
+</html>

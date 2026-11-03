@@ -1,0 +1,1 @@
+# No third-party packages required: this MVP uses Python standard library only.

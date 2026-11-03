@@ -1,0 +1,2 @@
+# Core PDF parsing dependency. Paper discovery uses Python's standard library HTTP client.
+PyMuPDF>=1.24.5,<2.0
